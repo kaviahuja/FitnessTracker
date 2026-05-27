@@ -7,13 +7,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'FitTrack',
         short_name: 'FitTrack',
         description: 'Track calories, workouts, and weight',
-        theme_color: '#10b981',
-        background_color: '#0f172a',
+        theme_color: '#30d158',
+        background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',
         scope: '/',
