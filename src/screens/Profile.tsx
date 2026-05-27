@@ -99,7 +99,7 @@ function MacroInput({ label, value, onChange, color }: { label: string; value: s
 }
 
 export default function Profile() {
-  const stored = storage.getProfile()
+  const stored = storage.getProfile()!
   if (!stored) return <div className="flex items-center justify-center h-full text-[#8e8e93]">No profile found.</div>
 
   const ftIn = cmToFtIn(stored.heightCm)
@@ -165,6 +165,7 @@ export default function Profile() {
       : (parseFloat(heightCm) || stored.heightCm)
     storage.saveProfile({
       ...stored,
+      onboardingComplete: true,
       name: name.trim() || stored.name,
       goal,
       gender,

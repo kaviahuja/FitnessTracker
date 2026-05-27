@@ -147,7 +147,7 @@ export default function Home() {
             <ResponsiveContainer width="100%" height={72}>
               <BarChart data={calorie7Days} barSize={18}>
                 <XAxis dataKey="day" tick={{ fill: '#8e8e93', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip cursor={false} contentStyle={{ background: '#fff', border: '1px solid #e5e5ea', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }} formatter={(v: number) => [`${v} kcal`, '']} />
+                <Tooltip cursor={false} contentStyle={{ background: '#fff', border: '1px solid #e5e5ea', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }} formatter={(v: unknown) => [`${Number(v) || 0} kcal`, '']} />
                 <Bar dataKey="cals" radius={[5, 5, 0, 0]}>
                   {calorie7Days.map((e, i) => <Cell key={i} fill={e.date === today ? '#30d158' : '#e5e5ea'} />)}
                 </Bar>
@@ -175,7 +175,7 @@ export default function Home() {
             <LineChart data={weight7Days}>
               <XAxis dataKey="day" tick={{ fill: '#8e8e93', fontSize: 10 }} axisLine={false} tickLine={false} />
               <YAxis domain={['auto', 'auto']} tick={{ fill: '#8e8e93', fontSize: 10 }} axisLine={false} tickLine={false} width={28} />
-              <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e5e5ea', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }} formatter={(v: number) => [`${v} ${profile?.weightUnit ?? 'kg'}`, 'Weight']} />
+              <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e5e5ea', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }} formatter={(v: unknown) => [`${Number(v) || 0} ${profile?.weightUnit ?? 'kg'}`, 'Weight']} />
               <Line type="monotone" dataKey="weight" stroke="#0071e3" strokeWidth={2.5} dot={{ fill: '#0071e3', r: 4, strokeWidth: 0 }} activeDot={{ r: 6, fill: '#0071e3' }} />
             </LineChart>
           </ResponsiveContainer>
