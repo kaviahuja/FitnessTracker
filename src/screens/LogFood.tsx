@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { storage } from '../lib/storage'
 import type { FoodItem, MealLog } from '../types'
 
@@ -65,6 +65,34 @@ async function analyzeFood(data: string, mediaType: string): Promise<FoodItem[]>
   return JSON.parse(match[0]) as FoodItem[]
 }
 
+type Per100g = { calories: number; protein: number; carbs: number; fat: number }
+type FoodSuggestion = { name: string; per100g: Per100g }
+
+async function searchFoods(query: string): Promise<FoodSuggestion[]> {
+  try {
+    const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&action=process&json=1&page_size=6&fields=product_name,nutriments`
+    const res = await fetch(url)
+    const data = await res.json() as { products?: Record<string, unknown>[] }
+    return ((data.products ?? []) as Record<string, unknown>[])
+      .filter(p => p.product_name && (p.nutriments as Record<string, unknown> | undefined)?.['energy-kcal_100g'] != null)
+      .slice(0, 5)
+      .map(p => {
+        const n = p.nutriments as Record<string, number>
+        return {
+          name: p.product_name as string,
+          per100g: {
+            calories: Math.round(n['energy-kcal_100g'] ?? 0),
+            protein: n['proteins_100g'] ?? 0,
+            carbs: n['carbohydrates_100g'] ?? 0,
+            fat: n['fat_100g'] ?? 0,
+          },
+        }
+      })
+  } catch {
+    return []
+  }
+}
+
 const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack'] as const
 type MealType = (typeof MEAL_TYPES)[number]
 const MEAL_TIMES: Record<MealType, string> = {
@@ -115,6 +143,69 @@ function ApiKeyModal({ onSave, onDismiss }: { onSave: () => void; onDismiss: () 
 }
 
 function ItemEditor({ item, onChange, onDelete }: { item: FoodItem; onChange: (u: FoodItem) => void; onDelete: () => void }) {
+  const [suggestions, setSuggestions] = useState<FoodSuggestion[]>([])
+  const [per100g, setPer100g] = useState<Per100g | null>(null)
+  const [weightG, setWeightG] = useState<string>('')
+  const [searching, setSearching] = useState(false)
+  const per100gRef = useRef<Per100g | null>(null)
+  per100gRef.current = per100g
+
+  useEffect(() => {
+    if (per100gRef.current !== null || item.name.length < 2) {
+      setSuggestions([])
+      return
+    }
+    const t = setTimeout(async () => {
+      setSearching(true)
+      setSuggestions(await searchFoods(item.name))
+      setSearching(false)
+    }, 400)
+    return () => clearTimeout(t)
+  }, [item.name])
+
+  function calcItem(name: string, w: number, p: Per100g): FoodItem {
+    return {
+      ...item,
+      name,
+      amount: `${w}g`,
+      calories: Math.round((w / 100) * p.calories),
+      protein: Math.round((w / 100) * p.protein * 10) / 10,
+      carbs: Math.round((w / 100) * p.carbs * 10) / 10,
+      fat: Math.round((w / 100) * p.fat * 10) / 10,
+    }
+  }
+
+  function handleNameChange(name: string) {
+    if (per100g !== null) {
+      setPer100g(null)
+      setWeightG('')
+      onChange({ ...item, name, calories: 0, protein: 0, carbs: 0, fat: 0, amount: '' })
+    } else {
+      onChange({ ...item, name })
+    }
+  }
+
+  function selectSuggestion(s: FoodSuggestion) {
+    setPer100g(s.per100g)
+    setSuggestions([])
+    const w = parseFloat(weightG)
+    onChange(!isNaN(w) && w > 0 ? calcItem(s.name, w, s.per100g) : { ...item, name: s.name })
+  }
+
+  function handleWeightChange(val: string) {
+    setWeightG(val)
+    const w = parseFloat(val)
+    if (!isNaN(w) && w > 0 && per100g) {
+      onChange(calcItem(item.name, w, per100g))
+    }
+  }
+
+  function clearSelection() {
+    setPer100g(null)
+    setWeightG('')
+    onChange({ ...item, calories: 0, protein: 0, carbs: 0, fat: 0, amount: '' })
+  }
+
   function num(key: keyof FoodItem, label: string) {
     return (
       <div className="flex-1 flex flex-col gap-1">
@@ -129,20 +220,69 @@ function ItemEditor({ item, onChange, onDelete }: { item: FoodItem; onChange: (u
       </div>
     )
   }
+
   return (
     <div className="bg-[#f5f5f7] rounded-xl p-3 flex flex-col gap-2 border border-[#e5e5ea]">
-      <div className="flex gap-2 items-center">
+      {/* Food name with live search */}
+      <div className="flex gap-2 items-start">
         <div className="flex-1">
-          <span className="text-[#8e8e93] text-xs">Food</span>
-          <input
-            type="text"
-            value={item.name}
-            placeholder="e.g. Chicken breast"
-            onChange={e => onChange({ ...item, name: e.target.value })}
-            className="block w-full bg-white border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none mt-1 placeholder-[#c7c7cc]"
-          />
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[#8e8e93] text-xs">Food</span>
+            {per100g && (
+              <button onClick={clearSelection} className="text-[#8e8e93] text-xs underline">Clear</button>
+            )}
+          </div>
+          <div className="relative">
+            <input
+              type="text"
+              value={item.name}
+              placeholder="Search or type food name"
+              onChange={e => handleNameChange(e.target.value)}
+              onBlur={() => setTimeout(() => setSuggestions([]), 150)}
+              className="block w-full bg-white border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none placeholder-[#c7c7cc] pr-8"
+            />
+            {searching && (
+              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-[#e5e5ea] border-t-[#30d158] rounded-full animate-spin pointer-events-none" />
+            )}
+            {suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#e5e5ea] rounded-xl shadow-lg z-10 overflow-hidden">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onMouseDown={() => selectSuggestion(s)}
+                    className="w-full text-left px-3 py-2.5 flex items-center justify-between gap-2 border-b border-[#f0f0f5] last:border-0 active:bg-[#f5f5f7]"
+                  >
+                    <span className="text-[#1d1d1f] text-sm truncate">{s.name}</span>
+                    <svg width="12" height="12" fill="none" stroke="#c7c7cc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" className="flex-shrink-0">
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="w-24">
+        <button onClick={onDelete} className="text-[#c7c7cc] text-base leading-none mt-[22px] flex-shrink-0">✕</button>
+      </div>
+
+      {/* Weight (database mode) or Amount (manual mode) */}
+      {per100g ? (
+        <div className="flex items-center gap-2">
+          <span className="text-[#8e8e93] text-xs w-14 flex-shrink-0">Weight</span>
+          <div className="relative flex-1">
+            <input
+              type="number"
+              inputMode="numeric"
+              value={weightG}
+              placeholder="grams"
+              onChange={e => handleWeightChange(e.target.value)}
+              className="block w-full bg-white border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none pr-7"
+            />
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8e8e93] text-xs pointer-events-none">g</span>
+          </div>
+        </div>
+      ) : (
+        <div>
           <span className="text-[#8e8e93] text-xs">Amount</span>
           <input
             type="text"
@@ -152,8 +292,9 @@ function ItemEditor({ item, onChange, onDelete }: { item: FoodItem; onChange: (u
             className="block w-full bg-white border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none mt-1 placeholder-[#c7c7cc]"
           />
         </div>
-        <button onClick={onDelete} className="text-[#c7c7cc] text-base leading-none mt-4 flex-shrink-0">✕</button>
-      </div>
+      )}
+
+      {/* Macro fields — always editable */}
       <div className="flex gap-2">
         {num('calories', 'kcal')}
         {num('protein', 'Protein')}

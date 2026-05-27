@@ -834,6 +834,30 @@ export default function LogWorkout() {
     setSheet(null)
   }
 
+  function editWorkout() {
+    if (!log) return
+    // Convert saved exercises back to editable drafts, preserving all entered data
+    const drafts: DraftExercise[] = log.exercises.map(e => ({
+      name: e.name,
+      sets: e.sets.length ? [...e.sets] : [{ reps: 0 }],
+    }))
+    // Re-append any routine exercises not yet logged
+    const routine = storage.getRoutine()
+    const dayIdx = weekdayIndex(selectedDate)
+    const routineDay = routine[dayIdx]
+    if (routineDay && !routineDay.isRestDay) {
+      const loggedNames = new Set(log.exercises.map(e => e.name.toLowerCase()))
+      for (const re of routineDay.exercises) {
+        if (!loggedNames.has(re.name.toLowerCase())) {
+          drafts.push({ name: re.name, sets: Array.from({ length: re.setCount }, () => ({ reps: 0 })) })
+        }
+      }
+    }
+    storage.deleteWorkoutLog(selectedDate)
+    setDraftExercises(drafts)
+    setRefresh(r => r + 1)
+  }
+
   function saveRoutine(r: WeeklyRoutine) {
     storage.saveRoutine(r)
   }
@@ -916,7 +940,7 @@ export default function LogWorkout() {
         {isDrafting && (
           <div className="bg-[#0071e3]/8 border border-[#0071e3]/20 rounded-xl px-4 py-2.5 flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-[#0071e3] animate-pulse flex-shrink-0" />
-            <p className="text-[#0071e3] text-sm font-medium">Routine loaded — fill in your weights and reps</p>
+            <p className="text-[#0071e3] text-sm font-medium">Routine loaded — fill in your weights, sets and reps</p>
           </div>
         )}
 
@@ -953,6 +977,20 @@ export default function LogWorkout() {
           </div>
         ) : hasExercises ? (
           <div className="flex flex-col gap-2">
+            {/* Edit banner — visible at top of saved workout */}
+            <button
+              onClick={editWorkout}
+              className="bg-[#0071e3]/8 border border-[#0071e3]/20 rounded-xl px-4 py-3 flex items-center gap-3 w-full text-left active:bg-[#0071e3]/15 transition-colors"
+            >
+              <div className="flex-1">
+                <p className="text-[#0071e3] text-sm font-semibold">Workout saved — {log!.exercises.length} exercise{log!.exercises.length !== 1 ? 's' : ''} logged</p>
+                <p className="text-[#0071e3]/70 text-xs mt-0.5">Tap to edit or add remaining exercises</p>
+              </div>
+              <svg width="16" height="16" fill="none" stroke="#0071e3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" className="flex-shrink-0">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
             {groupByCategory(log!.exercises, e => e.name).map(group => (
               <div key={group.category}>
                 <CategoryHeader category={group.category} count={group.items.length} />
@@ -1003,7 +1041,7 @@ export default function LogWorkout() {
               )}
               <button onClick={() => setSheet({ mode: 'add' })}
                 className="flex-1 bg-[#0071e3] text-white font-semibold py-3.5 rounded-2xl shadow-md active:scale-95 transition-transform">
-                + Add Exercise
+                + Exercise
               </button>
             </>
           )}
