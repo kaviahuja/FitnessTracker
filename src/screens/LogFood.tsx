@@ -1,0 +1,495 @@
+import { useState, useRef } from 'react'
+import { storage } from '../lib/storage'
+import type { FoodItem, MealLog } from '../types'
+
+function todayStr() { return new Date().toISOString().split('T')[0] }
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2) }
+
+function fileToBase64(file: File): Promise<{ data: string; mediaType: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      const [prefix, data] = result.split(',')
+      const mediaType = prefix.match(/:(.*?);/)?.[1] ?? 'image/jpeg'
+      resolve({ data, mediaType })
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+function formatDate(dateStr: string): string {
+  const today = todayStr()
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
+  const yStr = yesterday.toISOString().split('T')[0]
+  const label = new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  if (dateStr === today) return `Today`
+  if (dateStr === yStr) return `Yesterday`
+  return label
+}
+
+async function analyzeFood(data: string, mediaType: string): Promise<FoodItem[]> {
+  const apiKey = localStorage.getItem('fittrack_claude_key')
+  if (!apiKey) throw new Error('no_api_key')
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-opus-4-7',
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
+          { type: 'text', text: 'Identify all food items in this image. For each, estimate serving size and nutrition. Return ONLY a JSON array with no markdown:\n[{"name":"","amount":"","calories":0,"protein":0,"carbs":0,"fat":0}]\nAll nutrient values must be integers.' },
+        ],
+      }],
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { error?: { message?: string } }).error?.message ?? 'API request failed')
+  }
+  const result = await res.json() as { content: { type: string; text: string }[] }
+  const text = result.content?.find(c => c.type === 'text')?.text ?? ''
+  const match = text.match(/\[[\s\S]*?\]/)
+  if (!match) throw new Error('Could not parse food data')
+  return JSON.parse(match[0]) as FoodItem[]
+}
+
+const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack'] as const
+type MealType = (typeof MEAL_TYPES)[number]
+const MEAL_TIMES: Record<MealType, string> = {
+  Breakfast: '6–10 am', Lunch: '12–2 pm', Dinner: '6–9 pm', Snack: 'Anytime',
+}
+const MEAL_COLORS: Record<MealType, string> = {
+  Breakfast: 'bg-[#ff9500]',
+  Lunch: 'bg-[#30d158]',
+  Dinner: 'bg-[#0071e3]',
+  Snack: 'bg-[#bf5af2]',
+}
+type Step = 'closed' | 'select-meal' | 'select-method' | 'analyzing' | 'review' | 'manual-add'
+
+function emptyItem(): FoodItem {
+  return { name: '', amount: '', calories: 0, protein: 0, carbs: 0, fat: 0 }
+}
+
+function ApiKeyModal({ onSave, onDismiss }: { onSave: () => void; onDismiss: () => void }) {
+  const [key, setKey] = useState('')
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end z-50 px-4 pb-6">
+      <div className="bg-white rounded-2xl p-6 w-full flex flex-col gap-4 shadow-xl">
+        <div>
+          <h3 className="text-[#1d1d1f] font-semibold text-lg">Anthropic API Key</h3>
+          <p className="text-[#6e6e73] text-sm mt-1">Required for AI food detection. Stored locally on this device only.</p>
+        </div>
+        <input
+          type="password"
+          placeholder="sk-ant-..."
+          value={key}
+          onChange={e => setKey(e.target.value)}
+          className="bg-[#f5f5f7] border border-[#e5e5ea] text-[#1d1d1f] rounded-xl px-4 py-3 outline-none w-full placeholder-[#c7c7cc]"
+          autoFocus
+        />
+        <div className="flex gap-3">
+          <button onClick={onDismiss} className="flex-1 bg-[#f5f5f7] text-[#1d1d1f] font-medium py-3 rounded-xl">Cancel</button>
+          <button
+            onClick={() => { localStorage.setItem('fittrack_claude_key', key); onSave() }}
+            disabled={key.length < 10}
+            className="flex-1 bg-[#30d158] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-semibold py-3 rounded-xl"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ItemEditor({ item, onChange, onDelete }: { item: FoodItem; onChange: (u: FoodItem) => void; onDelete: () => void }) {
+  function num(key: keyof FoodItem, label: string) {
+    return (
+      <div className="flex-1 flex flex-col gap-1">
+        <span className="text-[#8e8e93] text-xs">{label}</span>
+        <input
+          type="number"
+          inputMode="numeric"
+          value={(item[key] as number) || ''}
+          onChange={e => onChange({ ...item, [key]: Number(e.target.value) })}
+          className="bg-[#f5f5f7] border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none w-full"
+        />
+      </div>
+    )
+  }
+  return (
+    <div className="bg-[#f5f5f7] rounded-xl p-3 flex flex-col gap-2 border border-[#e5e5ea]">
+      <div className="flex gap-2 items-center">
+        <div className="flex-1">
+          <span className="text-[#8e8e93] text-xs">Food</span>
+          <input
+            type="text"
+            value={item.name}
+            placeholder="e.g. Chicken breast"
+            onChange={e => onChange({ ...item, name: e.target.value })}
+            className="block w-full bg-white border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none mt-1 placeholder-[#c7c7cc]"
+          />
+        </div>
+        <div className="w-24">
+          <span className="text-[#8e8e93] text-xs">Amount</span>
+          <input
+            type="text"
+            value={item.amount}
+            placeholder="100g"
+            onChange={e => onChange({ ...item, amount: e.target.value })}
+            className="block w-full bg-white border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none mt-1 placeholder-[#c7c7cc]"
+          />
+        </div>
+        <button onClick={onDelete} className="text-[#c7c7cc] text-base leading-none mt-4 flex-shrink-0">✕</button>
+      </div>
+      <div className="flex gap-2">
+        {num('calories', 'kcal')}
+        {num('protein', 'Protein')}
+        {num('carbs', 'Carbs')}
+        {num('fat', 'Fat')}
+      </div>
+    </div>
+  )
+}
+
+export default function LogFood() {
+  const [selectedDate, setSelectedDate] = useState(todayStr())
+  const [step, setStep] = useState<Step>('closed')
+  const [selectedMeal, setSelectedMeal] = useState<MealType>('Breakfast')
+  const [items, setItems] = useState<FoodItem[]>([])
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [, setRefresh] = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const dateInputRef = useRef<HTMLInputElement>(null)
+
+  const mealLogs = storage.getMealLogs().filter(m => m.date === selectedDate)
+  const profile = storage.getProfile()
+  const goal = profile?.calorieGoal ?? 2000
+  const totalCals = mealLogs.reduce((sum, m) => sum + m.items.reduce((s, i) => s + i.calories, 0), 0)
+  const over = totalCals > goal
+
+  function openSheet(meal?: MealType) {
+    setSelectedMeal(meal ?? 'Breakfast')
+    setItems([])
+    setPhotoPreview(null)
+    setError(null)
+    setStep(meal ? 'select-method' : 'select-meal')
+  }
+
+  function closeSheet() {
+    setStep('closed')
+    setPhotoPreview(null)
+    setError(null)
+    setItems([])
+  }
+
+  async function handlePhoto(file: File) {
+    setPhotoPreview(URL.createObjectURL(file))
+    setStep('analyzing')
+    setError(null)
+    try {
+      const { data, mediaType } = await fileToBase64(file)
+      const detected = await analyzeFood(data, mediaType)
+      setItems(detected.length ? detected : [emptyItem()])
+      setStep('review')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg === 'no_api_key') { setShowApiKey(true); setStep('select-method') }
+      else { setError(`Analysis failed: ${msg}`); setStep('select-method') }
+    }
+  }
+
+  function saveMeal() {
+    const validItems = items.filter(i => i.name.trim())
+    if (!validItems.length) return
+    storage.saveMealLog({ id: uid(), date: selectedDate, meal: selectedMeal, items: validItems, ...(photoPreview ? { photoUrl: photoPreview } : {}) } as MealLog)
+    setRefresh(r => r + 1)
+    closeSheet()
+  }
+
+  function deleteMealLog(id: string) {
+    storage.deleteMealLog(id)
+    setRefresh(r => r + 1)
+  }
+
+  const itemTotal = {
+    cal: items.reduce((s, i) => s + (i.calories || 0), 0),
+    p: items.reduce((s, i) => s + (i.protein || 0), 0),
+    c: items.reduce((s, i) => s + (i.carbs || 0), 0),
+    f: items.reduce((s, i) => s + (i.fat || 0), 0),
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-[#f5f5f7]">
+      {showApiKey && <ApiKeyModal onSave={() => setShowApiKey(false)} onDismiss={() => setShowApiKey(false)} />}
+
+      {/* Header */}
+      <div className="px-4 pt-14 pb-3 bg-[#f5f5f7] flex-shrink-0">
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-[28px] font-semibold text-[#1d1d1f] tracking-tight">Nutrition</h1>
+          <div className="flex items-center gap-2">
+            {/* API key button */}
+            <button
+              onClick={() => setShowApiKey(true)}
+              title="Change API key"
+              className="w-8 h-8 bg-white border border-[#e5e5ea] rounded-xl shadow-sm flex items-center justify-center"
+            >
+              <svg width="14" height="14" fill="none" stroke="#8e8e93" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+              </svg>
+            </button>
+          <button
+            onClick={() => dateInputRef.current?.showPicker?.()}
+            className="flex items-center gap-1.5 bg-white border border-[#e5e5ea] px-3 py-1.5 rounded-xl shadow-sm"
+          >
+            <svg width="14" height="14" fill="none" stroke="#8e8e93" strokeWidth="1.5" viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18" strokeLinecap="round" />
+            </svg>
+            <span className="text-[#1d1d1f] text-sm font-medium">{formatDate(selectedDate)}</span>
+            <span className="text-[#8e8e93] text-xs">▾</span>
+          </button>
+          </div>
+          <input
+            ref={dateInputRef}
+            type="date"
+            value={selectedDate}
+            max={todayStr()}
+            onChange={e => { if (e.target.value) setSelectedDate(e.target.value) }}
+            className="absolute opacity-0 pointer-events-none w-0 h-0"
+          />
+        </div>
+
+        {/* Daily summary */}
+        <div className="bg-white rounded-2xl border border-[#e5e5ea] px-4 py-3 flex items-center gap-3">
+          <div className="flex-1">
+            <div className="flex justify-between text-sm mb-2">
+              <span className="text-[#1d1d1f] font-semibold">{totalCals.toLocaleString()} kcal</span>
+              <span className="text-[#8e8e93]">{goal.toLocaleString()} goal</span>
+            </div>
+            <div className="h-1 bg-[#f0f0f5] rounded-full overflow-hidden">
+              <div
+                className={`h-1 rounded-full transition-all ${over ? 'bg-red-500' : 'bg-[#30d158]'}`}
+                style={{ width: `${Math.min((totalCals / goal) * 100, 100)}%` }}
+              />
+            </div>
+          </div>
+          <span className={`text-sm font-semibold flex-shrink-0 ${over ? 'text-red-500' : 'text-[#30d158]'}`}>
+            {over ? `+${totalCals - goal}` : `${goal - totalCals} left`}
+          </span>
+        </div>
+      </div>
+
+      {/* Meal sections */}
+      <div className="flex-1 overflow-y-auto px-4 pb-28 flex flex-col gap-3 pt-2">
+        {MEAL_TYPES.map(type => {
+          const logs = mealLogs.filter(m => m.meal === type)
+          const typeCals = logs.reduce((s, m) => s + m.items.reduce((ss, i) => ss + i.calories, 0), 0)
+          return (
+            <div key={type} className="bg-white rounded-2xl border border-[#e5e5ea] overflow-hidden shadow-sm">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className={`w-1.5 h-9 rounded-full ${MEAL_COLORS[type]}`} />
+                  <div>
+                    <p className="text-[#1d1d1f] font-semibold">{type}</p>
+                    <p className="text-[#8e8e93] text-xs">{MEAL_TIMES[type]}{typeCals > 0 ? ` · ${typeCals} kcal` : ''}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => openSheet(type)}
+                  className="w-8 h-8 bg-[#f5f5f7] border border-[#e5e5ea] rounded-full flex items-center justify-center text-[#30d158] text-xl font-light"
+                >
+                  +
+                </button>
+              </div>
+              {logs.length > 0 && (
+                <div className="border-t border-[#f0f0f5] divide-y divide-[#f0f0f5]">
+                  {logs.map(log => (
+                    <div key={log.id} className="px-4 py-2.5 flex items-start gap-2">
+                      <div className="flex-1">
+                        {log.items.map((item, i) => (
+                          <div key={i} className="flex justify-between text-sm py-0.5">
+                            <span className="text-[#1d1d1f]">
+                              {item.name}
+                              {item.amount ? <span className="text-[#8e8e93] text-xs ml-1">({item.amount})</span> : null}
+                            </span>
+                            <span className="text-[#6e6e73] ml-2 flex-shrink-0">{item.calories} kcal</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button onClick={() => deleteMealLog(log.id)} className="text-[#c7c7cc] text-sm leading-none mt-0.5">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* FAB */}
+      <button
+        onClick={() => openSheet()}
+        className="fixed bottom-24 right-5 w-14 h-14 bg-[#30d158] rounded-full shadow-lg flex items-center justify-center text-white text-3xl font-light active:scale-95 transition-transform z-30"
+      >
+        +
+      </button>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => e.target.files?.[0] && handlePhoto(e.target.files[0])}
+        onClick={e => { (e.target as HTMLInputElement).value = '' }}
+      />
+
+      {/* Bottom sheet */}
+      {step !== 'closed' && (
+        <div className="fixed inset-0 z-40 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={closeSheet} />
+          <div className="relative bg-white rounded-t-3xl max-h-[88vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+              <div className="w-10 h-1 bg-[#e5e5ea] rounded-full" />
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 pb-10">
+
+              {step === 'select-meal' && (
+                <div className="flex flex-col gap-4 py-4">
+                  <h3 className="text-[#1d1d1f] font-semibold text-xl">Add Meal</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {MEAL_TYPES.map(type => (
+                      <button
+                        key={type}
+                        onClick={() => { setSelectedMeal(type); setStep('select-method') }}
+                        className="flex flex-col gap-0.5 p-4 bg-[#f5f5f7] border border-[#e5e5ea] rounded-2xl text-left active:scale-95 transition-transform"
+                      >
+                        <span className="text-[#1d1d1f] font-semibold">{type}</span>
+                        <span className="text-[#8e8e93] text-xs">{MEAL_TIMES[type]}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {step === 'select-method' && (
+                <div className="flex flex-col gap-4 py-4">
+                  <div>
+                    <p className="text-[#8e8e93] text-sm">Adding to</p>
+                    <h3 className="text-[#1d1d1f] font-semibold text-xl">{selectedMeal}</h3>
+                  </div>
+                  {error && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-600 text-sm">{error}</div>
+                  )}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-4 p-4 bg-[#f5f5f7] border border-[#e5e5ea] rounded-2xl text-left active:scale-95 transition-transform"
+                  >
+                    <svg width="24" height="24" fill="none" stroke="#30d158" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
+                      <circle cx="12" cy="13" r="4" />
+                    </svg>
+                    <div>
+                      <p className="text-[#1d1d1f] font-semibold">Photo analysis</p>
+                      <p className="text-[#8e8e93] text-sm">Claude AI identifies food and estimates calories</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => { setItems([emptyItem()]); setStep('manual-add') }}
+                    className="flex items-center gap-4 p-4 bg-[#f5f5f7] border border-[#e5e5ea] rounded-2xl text-left active:scale-95 transition-transform"
+                  >
+                    <svg width="24" height="24" fill="none" stroke="#30d158" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    <div>
+                      <p className="text-[#1d1d1f] font-semibold">Enter manually</p>
+                      <p className="text-[#8e8e93] text-sm">Type in food items and nutrition yourself</p>
+                    </div>
+                  </button>
+                </div>
+              )}
+
+              {step === 'analyzing' && (
+                <div className="flex flex-col items-center justify-center py-16 gap-5">
+                  {photoPreview && <img src={photoPreview} alt="food" className="w-36 h-36 rounded-2xl object-cover" />}
+                  <div className="w-7 h-7 border-2 border-[#e5e5ea] border-t-[#30d158] rounded-full animate-spin" />
+                  <p className="text-[#6e6e73] text-sm">Analysing your meal...</p>
+                </div>
+              )}
+
+              {(step === 'review' || step === 'manual-add') && (
+                <div className="flex flex-col gap-4 py-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[#1d1d1f] font-semibold text-xl">
+                      {step === 'review' ? 'Review & Edit' : 'Add Items'}
+                    </h3>
+                    <span className="text-sm text-[#8e8e93]">{selectedMeal}</span>
+                  </div>
+
+                  {photoPreview && step === 'review' && (
+                    <img src={photoPreview} alt="food" className="w-full h-40 rounded-xl object-cover" />
+                  )}
+
+                  <div className="flex flex-col gap-2">
+                    {items.map((item, i) => (
+                      <ItemEditor
+                        key={i}
+                        item={item}
+                        onChange={updated => setItems(prev => prev.map((it, j) => j === i ? updated : it))}
+                        onDelete={() => setItems(prev => prev.filter((_, j) => j !== i))}
+                      />
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={() => setItems(prev => [...prev, emptyItem()])}
+                    className="w-full py-3 border border-dashed border-[#c7c7cc] text-[#8e8e93] rounded-xl text-sm"
+                  >
+                    + Add another item
+                  </button>
+
+                  {items.length > 0 && (
+                    <div className="bg-[#f5f5f7] border border-[#e5e5ea] rounded-xl px-4 py-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-[#6e6e73]">Total</span>
+                        <span className="text-[#1d1d1f] font-semibold">{itemTotal.cal} kcal</span>
+                      </div>
+                      <div className="flex gap-4 mt-1 text-xs text-[#8e8e93]">
+                        <span>P {itemTotal.p}g</span>
+                        <span>C {itemTotal.c}g</span>
+                        <span>F {itemTotal.f}g</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={saveMeal}
+                    disabled={!items.some(i => i.name.trim())}
+                    className="w-full bg-[#30d158] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-semibold py-4 rounded-2xl active:scale-95 transition-all"
+                  >
+                    Save {selectedMeal}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
