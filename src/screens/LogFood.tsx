@@ -110,63 +110,84 @@ function emptyItem(): FoodItem {
   return { name: '', amount: '', calories: 0, protein: 0, carbs: 0, fat: 0 }
 }
 
-function ApiKeyModal({ onSave, onDismiss }: { onSave: () => void; onDismiss: () => void }) {
-  const [key, setKey] = useState('')
+function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsdaSaved: () => void }) {
+  const [usdaKey, setUsdaKey] = useState(() => localStorage.getItem('fittrack_usda_key') ?? '')
+  const [claudeKey, setClaudeKey] = useState(() => localStorage.getItem('fittrack_claude_key') ?? '')
+  const [saved, setSaved] = useState(false)
+
+  function save() {
+    if (usdaKey.trim()) localStorage.setItem('fittrack_usda_key', usdaKey.trim())
+    if (claudeKey.trim()) localStorage.setItem('fittrack_claude_key', claudeKey.trim())
+    onUsdaSaved()
+    setSaved(true)
+    setTimeout(() => { setSaved(false); onDismiss() }, 800)
+  }
+
+  const canSave = usdaKey.trim().length >= 8 || claudeKey.trim().length >= 10
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end z-50 px-4 pb-6">
-      <div className="bg-white rounded-2xl p-6 w-full flex flex-col gap-4 shadow-xl">
-        <div>
-          <h3 className="text-[#1d1d1f] font-semibold text-lg">Anthropic API Key</h3>
-          <p className="text-[#6e6e73] text-sm mt-1">Required for AI food detection. Stored locally on this device only.</p>
-        </div>
-        <input
-          type="password"
-          placeholder="sk-ant-..."
-          value={key}
-          onChange={e => setKey(e.target.value)}
-          className="bg-[#f5f5f7] border border-[#e5e5ea] text-[#1d1d1f] rounded-xl px-4 py-3 outline-none w-full placeholder-[#c7c7cc]"
-          autoFocus
-        />
-        <div className="flex gap-3">
-          <button onClick={onDismiss} className="flex-1 bg-[#f5f5f7] text-[#1d1d1f] font-medium py-3 rounded-xl">Cancel</button>
-          <button
-            onClick={() => { localStorage.setItem('fittrack_claude_key', key); onSave() }}
-            disabled={key.length < 10}
-            className="flex-1 bg-[#30d158] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-semibold py-3 rounded-xl"
-          >
-            Save
+      <div className="bg-white rounded-2xl p-6 w-full flex flex-col gap-5 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[#1d1d1f] font-bold text-xl">API Keys</h3>
+          <button onClick={onDismiss} className="w-8 h-8 bg-[#f5f5f7] rounded-full flex items-center justify-center text-[#8e8e93]">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
           </button>
         </div>
-      </div>
-    </div>
-  )
-}
+        <p className="text-[#6e6e73] text-sm -mt-2">All keys are stored locally on this device only.</p>
 
-function UsdaKeyModal({ onSave, onDismiss }: { onSave: () => void; onDismiss: () => void }) {
-  const [key, setKey] = useState('')
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-end z-50 px-4 pb-6">
-      <div className="bg-white rounded-2xl p-6 w-full flex flex-col gap-4 shadow-xl">
-        <div>
-          <h3 className="text-[#1d1d1f] font-semibold text-lg">USDA Food Database Key</h3>
-          <p className="text-[#6e6e73] text-sm mt-1">Required for food search. Get a free key at fdc.nal.usda.gov — stored locally on this device only.</p>
+        {/* USDA key */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 bg-[#30d158]/10 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg width="13" height="13" fill="none" stroke="#30d158" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" strokeLinecap="round"/>
+              </svg>
+            </div>
+            <div>
+              <p className="text-[#1d1d1f] font-semibold text-sm">Manual Entry Search</p>
+              <p className="text-[#8e8e93] text-xs">USDA FoodData Central — fdc.nal.usda.gov</p>
+            </div>
+          </div>
+          <input
+            type="text"
+            placeholder="Paste your USDA API key"
+            value={usdaKey}
+            onChange={e => setUsdaKey(e.target.value)}
+            className="bg-[#f5f5f7] border border-[#e5e5ea] text-[#1d1d1f] rounded-xl px-4 py-3 outline-none w-full placeholder-[#c7c7cc] text-sm"
+          />
         </div>
-        <input
-          type="text"
-          placeholder="Paste your USDA API key"
-          value={key}
-          onChange={e => setKey(e.target.value)}
-          className="bg-[#f5f5f7] border border-[#e5e5ea] text-[#1d1d1f] rounded-xl px-4 py-3 outline-none w-full placeholder-[#c7c7cc]"
-          autoFocus
-        />
-        <div className="flex gap-3">
+
+        {/* Claude key */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 bg-[#0071e3]/10 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg width="13" height="13" fill="none" stroke="#0071e3" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>
+              </svg>
+            </div>
+            <div>
+              <p className="text-[#1d1d1f] font-semibold text-sm">Photo Analysis</p>
+              <p className="text-[#8e8e93] text-xs">Claude AI — console.anthropic.com</p>
+            </div>
+          </div>
+          <input
+            type="password"
+            placeholder="sk-ant-..."
+            value={claudeKey}
+            onChange={e => setClaudeKey(e.target.value)}
+            className="bg-[#f5f5f7] border border-[#e5e5ea] text-[#1d1d1f] rounded-xl px-4 py-3 outline-none w-full placeholder-[#c7c7cc] text-sm"
+          />
+        </div>
+
+        <div className="flex gap-3 mt-1">
           <button onClick={onDismiss} className="flex-1 bg-[#f5f5f7] text-[#1d1d1f] font-medium py-3 rounded-xl">Cancel</button>
           <button
-            onClick={() => { localStorage.setItem('fittrack_usda_key', key.trim()); onSave() }}
-            disabled={key.trim().length < 8}
-            className="flex-1 bg-[#30d158] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-semibold py-3 rounded-xl"
+            onClick={save}
+            disabled={!canSave}
+            className={`flex-1 font-semibold py-3 rounded-xl transition-colors ${saved ? 'bg-[#30d158] text-white' : 'bg-[#0071e3] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white'}`}
           >
-            Save
+            {saved ? 'Saved ✓' : 'Save Keys'}
           </button>
         </div>
       </div>
@@ -347,8 +368,7 @@ export default function LogFood() {
   const [items, setItems] = useState<FoodItem[]>([])
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [showApiKey, setShowApiKey] = useState(false)
-  const [showUsdaKey, setShowUsdaKey] = useState(false)
+  const [showApiKeys, setShowApiKeys] = useState(false)
   const [usdaKeySet, setUsdaKeySet] = useState(() => !!localStorage.getItem('fittrack_usda_key'))
   const [, setRefresh] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -386,7 +406,7 @@ export default function LogFood() {
       setStep('review')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
-      if (msg === 'no_api_key') { setShowApiKey(true); setStep('select-method') }
+      if (msg === 'no_api_key') { setShowApiKeys(true); setStep('select-method') }
       else { setError(`Analysis failed: ${msg}`); setStep('select-method') }
     }
   }
@@ -413,33 +433,23 @@ export default function LogFood() {
 
   return (
     <div className="flex flex-col h-full bg-[#f5f5f7]">
-      {showApiKey && <ApiKeyModal onSave={() => setShowApiKey(false)} onDismiss={() => setShowApiKey(false)} />}
-      {showUsdaKey && <UsdaKeyModal onSave={() => { setUsdaKeySet(true); setShowUsdaKey(false) }} onDismiss={() => setShowUsdaKey(false)} />}
+      {showApiKeys && <ApiKeysModal onDismiss={() => setShowApiKeys(false)} onUsdaSaved={() => setUsdaKeySet(true)} />}
 
       {/* Header */}
       <div className="px-4 pt-14 pb-3 bg-[#f5f5f7] flex-shrink-0">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-[28px] font-semibold text-[#1d1d1f] tracking-tight">Nutrition</h1>
           <div className="flex items-center gap-2">
-            {/* USDA food search key button */}
+            {/* API Keys button */}
             <button
-              onClick={() => setShowUsdaKey(true)}
-              title="USDA food database key"
-              className={`w-8 h-8 rounded-xl shadow-sm flex items-center justify-center border ${usdaKeySet ? 'bg-[#30d158]/10 border-[#30d158]/30' : 'bg-white border-[#e5e5ea]'}`}
+              onClick={() => setShowApiKeys(true)}
+              title="Manage API keys"
+              className="flex items-center gap-1.5 bg-white border border-[#e5e5ea] px-3 py-1.5 rounded-xl shadow-sm"
             >
-              <svg width="14" height="14" fill="none" stroke={usdaKeySet ? '#30d158' : '#8e8e93'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" strokeLinecap="round"/>
+              <svg width="13" height="13" fill="none" stroke="#8e8e93" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
               </svg>
-            </button>
-            {/* Claude API key button */}
-            <button
-              onClick={() => setShowApiKey(true)}
-              title="Change Claude API key"
-              className="w-8 h-8 bg-white border border-[#e5e5ea] rounded-xl shadow-sm flex items-center justify-center"
-            >
-              <svg width="14" height="14" fill="none" stroke="#8e8e93" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-              </svg>
+              <span className="text-[#1d1d1f] text-sm font-medium">API Keys</span>
             </button>
           <button
             onClick={() => dateInputRef.current?.showPicker?.()}
