@@ -359,7 +359,7 @@ function RoutineEditorSheet({ routine, onSave, onClose }: {
     for (let i = 0; i < 7; i++) {
       const day = routine[i]
       clone[i] = day
-        ? { isRestDay: day.isRestDay, exercises: day.exercises.map(e => ({ ...e })) }
+        ? { isRestDay: day.isRestDay, exercises: day.exercises.map(e => ({ ...e })), name: day.name }
         : { isRestDay: false, exercises: [] }
     }
     return clone
@@ -463,6 +463,21 @@ function RoutineEditorSheet({ routine, onSave, onClose }: {
               className={`w-12 h-6 rounded-full transition-colors ${day.isRestDay ? 'bg-[#0071e3]' : 'bg-[#e5e5ea]'}`}>
               <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform mx-0.5 ${day.isRestDay ? 'translate-x-6' : ''}`} />
             </button>
+          </div>
+
+          {/* Day name */}
+          <div className="py-3 border-b border-[#f5f5f7] mb-3">
+            <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-1.5">
+              Day Name <span className="text-[#c7c7cc] font-normal normal-case tracking-normal">(optional)</span>
+            </p>
+            <input
+              type="text"
+              value={day.name ?? ''}
+              onChange={e => updateDay({ ...day, name: e.target.value || undefined })}
+              placeholder={day.isRestDay ? 'e.g. Rest' : 'e.g. Push, Pull, Legs…'}
+              maxLength={20}
+              className="w-full bg-[#f5f5f7] border border-[#e5e5ea] rounded-xl px-4 py-2.5 text-[#1d1d1f] text-sm font-semibold outline-none placeholder-[#c7c7cc]"
+            />
           </div>
 
           {!day.isRestDay && (

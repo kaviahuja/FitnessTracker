@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import type { CSSProperties } from 'react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { storage } from '../lib/storage'
 
@@ -9,6 +10,30 @@ function last7Days() {
     const d = new Date(); d.setDate(d.getDate() - (6 - i))
     return d.toISOString().split('T')[0]
   })
+}
+
+function currentWeekDays(): string[] {
+  const today = new Date()
+  const dow = today.getDay()
+  const offset = dow === 0 ? -6 : 1 - dow
+  const monday = new Date(today)
+  monday.setDate(today.getDate() + offset)
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    return d.toISOString().split('T')[0]
+  })
+}
+
+function weekdayIdx(dateStr: string): number {
+  return (new Date(dateStr + 'T00:00:00').getDay() + 6) % 7
+}
+
+function mondayOf(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  const dow = d.getDay()
+  d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow))
+  return d.toISOString().split('T')[0]
 }
 
 function shortDay(dateStr: string) {
@@ -62,6 +87,7 @@ export default function Home() {
   const mealLogs = storage.getMealLogs()
   const weightLogs = storage.getWeightLogs()
   const workoutLogs = storage.getWorkoutLogs()
+  const routine = storage.getRoutine()
 
   const todayNutrition = useMemo(() =>
     mealLogs.filter(m => m.date === today).reduce(
@@ -85,11 +111,70 @@ export default function Home() {
       return { day: shortDay(date), weight: log?.weight ?? null, date }
     }).filter(d => d.weight !== null), [weightLogs, days])
 
-  const workout7Days = useMemo(() =>
-    days.map(date => {
+  const workoutWeekDays = useMemo(() =>
+    currentWeekDays().map(date => {
       const log = workoutLogs.find(w => w.date === date)
-      return { done: !!log, isRest: log?.isRestDay ?? false, date, day: shortDay(date) }
-    }), [workoutLogs, days])
+      const routineDay = routine[weekdayIdx(date)]
+      const isFuture = date > today
+      const isToday = date === today
+
+      let state: 'green' | 'red' | 'blue' | 'grey'
+      if (log && !log.isRestDay) state = 'green'
+      else if (log?.isRestDay || routineDay?.isRestDay) state = 'blue'
+      else if (!isFuture && !isToday && routineDay && !routineDay.isRestDay) state = 'red'
+      else state = 'grey'
+
+      const label = routineDay?.name?.trim() ||
+        (routineDay?.isRestDay || log?.isRestDay ? 'Rest' : '')
+
+      return { date, state, label }
+    }), [workoutLogs, routine, today])
+
+  const { chartData, topExerciseName, useReps } = useMemo(() => {
+    const freq = new Map<string, number>()
+    for (const log of workoutLogs) {
+      if (log.isRestDay) continue
+      for (const ex of log.exercises) {
+        const k = ex.name.toLowerCase()
+        freq.set(k, (freq.get(k) ?? 0) + 1)
+      }
+    }
+    if (freq.size === 0) return { chartData: [], topExerciseName: '', useReps: false }
+
+    const topKey = [...freq.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    const topName = workoutLogs.flatMap(l => l.exercises)
+      .find(e => e.name.toLowerCase() === topKey)?.name ?? topKey
+
+    const hasWeight = workoutLogs.some(l =>
+      l.exercises.some(e => e.name.toLowerCase() === topKey &&
+        e.sets.some(s => (s.weight ?? 0) > 0)))
+
+    const thisMon = mondayOf(today)
+    const weeks = Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(thisMon + 'T00:00:00')
+      d.setDate(d.getDate() - (5 - i) * 7)
+      return d.toISOString().split('T')[0]
+    })
+
+    const data = weeks.map(mon => {
+      const sun = (() => { const d = new Date(mon + 'T00:00:00'); d.setDate(d.getDate() + 6); return d.toISOString().split('T')[0] })()
+      let max: number | null = null
+      for (const log of workoutLogs.filter(l => l.date >= mon && l.date <= sun && !l.isRestDay)) {
+        for (const ex of log.exercises.filter(e => e.name.toLowerCase() === topKey)) {
+          for (const s of ex.sets) {
+            const v = hasWeight ? (s.weight ?? null) : s.reps
+            if (v != null && (max === null || v > max)) max = v
+          }
+        }
+      }
+      const label = new Date(mon + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      return { weekLabel: label, value: max }
+    })
+
+    return { chartData: data, topExerciseName: topName, useReps: !hasWeight }
+  }, [workoutLogs, today])
+
+  const hasEnoughChartData = chartData.filter(d => d.value !== null).length >= 2
 
   const calorieGoal = profile?.calorieGoal ?? 2000
   const consumed = todayNutrition.calories
@@ -184,36 +269,62 @@ export default function Home() {
 
       {/* Workout card */}
       <div className="bg-white rounded-2xl border border-[#e5e5ea] px-5 py-4 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider">Workouts</p>
-          <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
-            workout7Days[6].done
-              ? workout7Days[6].isRest ? 'bg-blue-50 text-blue-500' : 'bg-[#30d158]/10 text-[#30d158]'
-              : 'bg-[#f5f5f7] text-[#8e8e93]'
-          }`}>
-            {workout7Days[6].done ? (workout7Days[6].isRest ? 'Rest day' : 'Done') : 'Not logged'}
-          </span>
-        </div>
-        <div className="flex gap-2">
-          {workout7Days.map((w, i) => (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
-              <div className={`w-full aspect-square rounded-xl border-2 flex items-center justify-center ${
-                !w.done ? 'border-[#e5e5ea] bg-white' :
-                w.isRest ? 'border-blue-200 bg-blue-50' :
-                'border-[#30d158] bg-[#30d158]'
-              }`}>
-                {w.done && !w.isRest && (
-                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                    <path d="M2.5 6.5l3 3 5-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-                {w.isRest && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                )}
-              </div>
-              <span className="text-[#8e8e93] text-[10px]">{w.day}</span>
+        <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-4">Workouts</p>
+
+        {/* Progress chart */}
+        {topExerciseName && (
+          <div className="mb-4 pb-4 border-b border-[#f5f5f7]">
+            <div className="flex items-baseline justify-between mb-2">
+              <p className="text-[#1d1d1f] text-sm font-semibold truncate flex-1 mr-2">{topExerciseName}</p>
+              <p className="text-[#8e8e93] text-[10px] flex-shrink-0">
+                {useReps ? 'Max reps/week' : `Max ${profile?.weightUnit ?? 'kg'}/week`}
+              </p>
             </div>
-          ))}
+            {!hasEnoughChartData ? (
+              <p className="text-[#c7c7cc] text-sm text-center py-4">Log 2+ weeks to see your progress trend</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={90}>
+                <LineChart data={chartData}>
+                  <XAxis dataKey="weekLabel" tick={{ fill: '#8e8e93', fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis domain={['auto', 'auto']} tick={{ fill: '#8e8e93', fontSize: 10 }} axisLine={false} tickLine={false} width={28} />
+                  <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e5e5ea', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
+                    formatter={(v: unknown) => v == null ? ['—', ''] : [`${Number(v)} ${useReps ? 'reps' : (profile?.weightUnit ?? 'kg')}`, '']} />
+                  <Line type="monotone" dataKey="value" stroke="#30d158" strokeWidth={2.5} connectNulls={false}
+                    dot={{ fill: '#30d158', r: 4, strokeWidth: 0 }} activeDot={{ r: 6, fill: '#30d158' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        )}
+
+        {/* Mon–Sun boxes */}
+        <div className="flex gap-2">
+          {workoutWeekDays.map((w, i) => {
+            const boxStyle: CSSProperties =
+              w.state === 'green' ? { backgroundColor: '#30d158', borderColor: '#30d158' } :
+              w.state === 'red'   ? { backgroundColor: '#ff3b30', borderColor: '#ff3b30' } :
+              w.state === 'blue'  ? { backgroundColor: '#e8f1fb', borderColor: '#bfd4f5' } :
+                                    { backgroundColor: 'white',   borderColor: '#e5e5ea' }
+            const labelColor =
+              w.state === 'green' || w.state === 'red' ? 'text-white' :
+              w.state === 'blue' ? 'text-[#0071e3]' : 'text-[#c7c7cc]'
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
+                <div className="w-full aspect-square rounded-xl border-2 flex items-center justify-center px-0.5" style={boxStyle}>
+                  {w.label ? (
+                    <span className={`text-[9px] font-bold text-center leading-tight ${labelColor}`}>{w.label}</span>
+                  ) : w.state === 'green' ? (
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <path d="M2.5 6.5l3 3 5-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  ) : null}
+                </div>
+                <span className="text-[#8e8e93] text-[10px]">
+                  {new Date(w.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 3)}
+                </span>
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>

@@ -71,6 +71,7 @@ export interface RoutineExercise {
 export interface RoutineDay {
   isRestDay: boolean
   exercises: RoutineExercise[]
+  name?: string
 }
 
 // 0 = Monday … 6 = Sunday
