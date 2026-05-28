@@ -67,27 +67,27 @@ async function analyzeFood(data: string, mediaType: string): Promise<FoodItem[]>
 
 type Per100g = { calories: number; protein: number; carbs: number; fat: number }
 type FoodSuggestion = { name: string; per100g: Per100g }
+type USDAFood = { description: string; foodNutrients: { nutrientId: number; value: number }[] }
 
 async function searchFoods(query: string): Promise<FoodSuggestion[]> {
+  const apiKey = localStorage.getItem('fittrack_usda_key')
+  if (!apiKey) return []
   try {
-    const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&action=process&json=1&page_size=6&fields=product_name,nutriments`
+    const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(query)}&api_key=${apiKey}&dataType=Foundation,SR%20Legacy&pageSize=6`
     const res = await fetch(url)
-    const data = await res.json() as { products?: Record<string, unknown>[] }
-    return ((data.products ?? []) as Record<string, unknown>[])
-      .filter(p => p.product_name && (p.nutriments as Record<string, unknown> | undefined)?.['energy-kcal_100g'] != null)
-      .slice(0, 5)
-      .map(p => {
-        const n = p.nutriments as Record<string, number>
-        return {
-          name: p.product_name as string,
-          per100g: {
-            calories: Math.round(n['energy-kcal_100g'] ?? 0),
-            protein: n['proteins_100g'] ?? 0,
-            carbs: n['carbohydrates_100g'] ?? 0,
-            fat: n['fat_100g'] ?? 0,
-          },
-        }
-      })
+    if (!res.ok) return []
+    const data = await res.json() as { foods?: USDAFood[] }
+    const getNutrient = (food: USDAFood, id: number) =>
+      food.foodNutrients.find(n => n.nutrientId === id)?.value ?? 0
+    return (data.foods ?? []).slice(0, 5).map(food => ({
+      name: food.description,
+      per100g: {
+        calories: Math.round(getNutrient(food, 1008)),
+        protein: Math.round(getNutrient(food, 1003) * 10) / 10,
+        carbs: Math.round(getNutrient(food, 1005) * 10) / 10,
+        fat: Math.round(getNutrient(food, 1004) * 10) / 10,
+      },
+    }))
   } catch {
     return []
   }
@@ -142,7 +142,39 @@ function ApiKeyModal({ onSave, onDismiss }: { onSave: () => void; onDismiss: () 
   )
 }
 
-function ItemEditor({ item, onChange, onDelete }: { item: FoodItem; onChange: (u: FoodItem) => void; onDelete: () => void }) {
+function UsdaKeyModal({ onSave, onDismiss }: { onSave: () => void; onDismiss: () => void }) {
+  const [key, setKey] = useState('')
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end z-50 px-4 pb-6">
+      <div className="bg-white rounded-2xl p-6 w-full flex flex-col gap-4 shadow-xl">
+        <div>
+          <h3 className="text-[#1d1d1f] font-semibold text-lg">USDA Food Database Key</h3>
+          <p className="text-[#6e6e73] text-sm mt-1">Required for food search. Get a free key at fdc.nal.usda.gov — stored locally on this device only.</p>
+        </div>
+        <input
+          type="text"
+          placeholder="Paste your USDA API key"
+          value={key}
+          onChange={e => setKey(e.target.value)}
+          className="bg-[#f5f5f7] border border-[#e5e5ea] text-[#1d1d1f] rounded-xl px-4 py-3 outline-none w-full placeholder-[#c7c7cc]"
+          autoFocus
+        />
+        <div className="flex gap-3">
+          <button onClick={onDismiss} className="flex-1 bg-[#f5f5f7] text-[#1d1d1f] font-medium py-3 rounded-xl">Cancel</button>
+          <button
+            onClick={() => { localStorage.setItem('fittrack_usda_key', key.trim()); onSave() }}
+            disabled={key.trim().length < 8}
+            className="flex-1 bg-[#30d158] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-semibold py-3 rounded-xl"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ItemEditor({ item, onChange, onDelete, hasUsdaKey }: { item: FoodItem; onChange: (u: FoodItem) => void; onDelete: () => void; hasUsdaKey: boolean }) {
   const [suggestions, setSuggestions] = useState<FoodSuggestion[]>([])
   const [per100g, setPer100g] = useState<Per100g | null>(null)
   const [weightG, setWeightG] = useState<string>('')
@@ -236,11 +268,14 @@ function ItemEditor({ item, onChange, onDelete }: { item: FoodItem; onChange: (u
             <input
               type="text"
               value={item.name}
-              placeholder="Search or type food name"
+              placeholder={hasUsdaKey ? 'Search food name...' : 'Enter food name'}
               onChange={e => handleNameChange(e.target.value)}
               onBlur={() => setTimeout(() => setSuggestions([]), 150)}
               className="block w-full bg-white border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none placeholder-[#c7c7cc] pr-8"
             />
+            {!hasUsdaKey && item.name.length === 0 && (
+              <p className="text-[#c7c7cc] text-[10px] mt-1 px-0.5">Add USDA key to enable food search</p>
+            )}
             {searching && (
               <div className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-[#e5e5ea] border-t-[#30d158] rounded-full animate-spin pointer-events-none" />
             )}
@@ -313,6 +348,8 @@ export default function LogFood() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
+  const [showUsdaKey, setShowUsdaKey] = useState(false)
+  const [usdaKeySet, setUsdaKeySet] = useState(() => !!localStorage.getItem('fittrack_usda_key'))
   const [, setRefresh] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dateInputRef = useRef<HTMLInputElement>(null)
@@ -377,16 +414,27 @@ export default function LogFood() {
   return (
     <div className="flex flex-col h-full bg-[#f5f5f7]">
       {showApiKey && <ApiKeyModal onSave={() => setShowApiKey(false)} onDismiss={() => setShowApiKey(false)} />}
+      {showUsdaKey && <UsdaKeyModal onSave={() => { setUsdaKeySet(true); setShowUsdaKey(false) }} onDismiss={() => setShowUsdaKey(false)} />}
 
       {/* Header */}
       <div className="px-4 pt-14 pb-3 bg-[#f5f5f7] flex-shrink-0">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-[28px] font-semibold text-[#1d1d1f] tracking-tight">Nutrition</h1>
           <div className="flex items-center gap-2">
-            {/* API key button */}
+            {/* USDA food search key button */}
+            <button
+              onClick={() => setShowUsdaKey(true)}
+              title="USDA food database key"
+              className={`w-8 h-8 rounded-xl shadow-sm flex items-center justify-center border ${usdaKeySet ? 'bg-[#30d158]/10 border-[#30d158]/30' : 'bg-white border-[#e5e5ea]'}`}
+            >
+              <svg width="14" height="14" fill="none" stroke={usdaKeySet ? '#30d158' : '#8e8e93'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" strokeLinecap="round"/>
+              </svg>
+            </button>
+            {/* Claude API key button */}
             <button
               onClick={() => setShowApiKey(true)}
-              title="Change API key"
+              title="Change Claude API key"
               className="w-8 h-8 bg-white border border-[#e5e5ea] rounded-xl shadow-sm flex items-center justify-center"
             >
               <svg width="14" height="14" fill="none" stroke="#8e8e93" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
@@ -591,6 +639,7 @@ export default function LogFood() {
                       <ItemEditor
                         key={i}
                         item={item}
+                        hasUsdaKey={usdaKeySet}
                         onChange={updated => setItems(prev => prev.map((it, j) => j === i ? updated : it))}
                         onDelete={() => setItems(prev => prev.filter((_, j) => j !== i))}
                       />
