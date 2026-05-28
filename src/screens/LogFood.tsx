@@ -150,7 +150,7 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
             </div>
           </div>
           <input
-            type="text"
+            type="password"
             placeholder="Paste your USDA API key"
             value={usdaKey}
             onChange={e => setUsdaKey(e.target.value)}
