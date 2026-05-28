@@ -33,7 +33,7 @@ function shortDay(dateStr: string) {
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-type DraftExercise = { name: string; sets: WorkoutSet[] }
+type DraftExercise = { name: string; sets: WorkoutSet[]; weightUnit: WeightUnit }
 
 // ─── Exercise library ────────────────────────────────────────────────
 const EXERCISE_LIBRARY: Record<string, string[]> = {
@@ -188,11 +188,10 @@ function SetRow({ set, index, onChange, onDelete, weightUnit }: {
 }
 
 // ─── Editable exercise card (drafting state) ─────────────────────────
-function EditableExerciseCard({ draft, index, onChange, onRemove, weightUnit, onSwapName }: {
+function EditableExerciseCard({ draft, index, onChange, onRemove, onSwapName }: {
   draft: DraftExercise; index: number
   onChange: (d: DraftExercise) => void
   onRemove: () => void
-  weightUnit: string
   onSwapName: (index: number) => void
 }) {
   return (
@@ -208,15 +207,25 @@ function EditableExerciseCard({ draft, index, onChange, onRemove, weightUnit, on
             </svg>
           </button>
         </div>
-        <button onClick={onRemove} className="w-7 h-7 bg-white border border-[#e5e5ea] rounded-full flex items-center justify-center text-[#ff3b30] shadow-sm flex-shrink-0 ml-2">
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+          <div className="flex bg-white border border-[#e5e5ea] rounded-lg p-0.5 shadow-sm">
+            {(['kg', 'lbs'] as WeightUnit[]).map(u => (
+              <button key={u} onClick={() => onChange({ ...draft, weightUnit: u })}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all ${draft.weightUnit === u ? 'bg-[#0071e3] text-white' : 'text-[#8e8e93]'}`}>
+                {u}
+              </button>
+            ))}
+          </div>
+          <button onClick={onRemove} className="w-7 h-7 bg-white border border-[#e5e5ea] rounded-full flex items-center justify-center text-[#ff3b30] shadow-sm">
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+              <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
       </div>
       <div className="px-4 py-3 flex flex-col gap-2.5">
         {draft.sets.map((set, i) => (
-          <SetRow key={i} set={set} index={i} weightUnit={weightUnit}
+          <SetRow key={i} set={set} index={i} weightUnit={draft.weightUnit}
             onChange={updated => onChange({ ...draft, sets: draft.sets.map((s, j) => j === i ? updated : s) })}
             onDelete={() => onChange({ ...draft, sets: draft.sets.filter((_, j) => j !== i) })}
           />
@@ -239,13 +248,14 @@ function EditableExerciseCard({ draft, index, onChange, onRemove, weightUnit, on
 function ExerciseCard({ exercise, onDelete, onEdit, weightUnit }: {
   exercise: Exercise; onDelete: () => void; onEdit: () => void; weightUnit: string
 }) {
+  const unit = exercise.weightUnit ?? weightUnit
   const volume = exercise.sets.reduce((s, set) => s + set.reps * (set.weight ?? 0), 0)
   return (
     <div className="bg-white rounded-2xl border border-[#e5e5ea] overflow-hidden shadow-sm">
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#f5f5f7]">
         <div className="flex-1 min-w-0">
           <p className="text-[#1d1d1f] font-semibold truncate">{exercise.name}</p>
-          <p className="text-[#8e8e93] text-xs">{exercise.sets.length} sets{volume > 0 ? ` · ${volume.toLocaleString()} ${weightUnit} vol` : ''}</p>
+          <p className="text-[#8e8e93] text-xs">{exercise.sets.length} sets{volume > 0 ? ` · ${volume.toLocaleString()} ${unit} vol` : ''}</p>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
           <button onClick={onEdit} className="w-7 h-7 bg-[#f5f5f7] rounded-full flex items-center justify-center">
@@ -269,7 +279,7 @@ function ExerciseCard({ exercise, onDelete, onEdit, weightUnit }: {
             <span className="flex-1 text-center text-[#0071e3] font-bold text-sm">{set.reps} reps</span>
             <span className="flex-1 text-right text-sm">
               {set.weight != null
-                ? <span className="text-[#30d158] font-bold">{set.weight} <span className="text-[#8e8e93] font-normal text-xs">{weightUnit}</span></span>
+                ? <span className="text-[#30d158] font-bold">{set.weight} <span className="text-[#8e8e93] font-normal text-xs">{unit}</span></span>
                 : <span className="text-[#c7c7cc]">Bodyweight</span>}
             </span>
           </div>
@@ -598,14 +608,14 @@ function RoutineEditorSheet({ routine, onSave, onClose }: {
 
 // ─── Add / Edit exercise sheet ───────────────────────────────────────
 function ExerciseSheet({ initial, weightUnit, onSave, onClose }: {
-  initial?: { name: string; sets: WorkoutSet[] }
+  initial?: { name: string; sets: WorkoutSet[]; weightUnit?: WeightUnit }
   weightUnit: WeightUnit
-  onSave: (name: string, sets: WorkoutSet[]) => void
+  onSave: (name: string, sets: WorkoutSet[], unit: WeightUnit) => void
   onClose: () => void
 }) {
   const [exName, setExName] = useState(initial?.name ?? '')
   const [sets, setSets] = useState<WorkoutSet[]>(initial?.sets ?? [{ reps: 0 }, { reps: 0 }, { reps: 0 }])
-  const [sheetWeightUnit, setSheetWeightUnit] = useState<WeightUnit>(weightUnit)
+  const [sheetWeightUnit, setSheetWeightUnit] = useState<WeightUnit>(initial?.weightUnit ?? weightUnit)
   const [showPicker, setShowPicker] = useState(!initial)
   const [customCategory, setCustomCategory] = useState<string>(() => {
     const name = initial?.name ?? ''
@@ -629,7 +639,7 @@ function ExerciseSheet({ initial, weightUnit, onSave, onClose }: {
     if (needsCategoryPick && customCategory) {
       storage.saveCustomExercise(trimmedName, customCategory)
     }
-    onSave(trimmedName, valid)
+    onSave(trimmedName, valid, sheetWeightUnit)
   }
 
   return (
@@ -749,7 +759,7 @@ export default function LogWorkout() {
     null
     | { mode: 'add' }
     | { mode: 'edit'; index: number; exercise: Exercise }
-    | { mode: 'swap'; draftIndex: number; name: string; sets: WorkoutSet[] }
+    | { mode: 'swap'; draftIndex: number; name: string; sets: WorkoutSet[]; weightUnit: WeightUnit }
   >(null)
 
   const profile = storage.getProfile()
@@ -780,13 +790,14 @@ export default function LogWorkout() {
       setDraftExercises(routineDay.exercises.map(e => ({
         name: e.name,
         sets: Array.from({ length: e.setCount }, () => ({ reps: 0 })),
+        weightUnit: profile?.weightUnit ?? 'kg',
       })))
     }
   }, [selectedDate])
 
   function saveDraft() {
     const exercises: Exercise[] = draftExercises
-      .map(d => ({ name: d.name, sets: d.sets.filter(s => s.reps > 0) }))
+      .map(d => ({ name: d.name, sets: d.sets.filter(s => s.reps > 0), weightUnit: d.weightUnit }))
       .filter(e => e.sets.length > 0)
     if (!exercises.length) return
     storage.saveWorkoutLog({ id: uid(), date: selectedDate, isRestDay: false, exercises })
@@ -811,6 +822,7 @@ export default function LogWorkout() {
       setDraftExercises(routineDay.exercises.map(e => ({
         name: e.name,
         sets: Array.from({ length: e.setCount }, () => ({ reps: 0 })),
+        weightUnit: profile?.weightUnit ?? 'kg',
       })))
     } else {
       setDraftExercises([])
@@ -825,26 +837,24 @@ export default function LogWorkout() {
     setRefresh(r => r + 1)
   }
 
-  function handleSheetSave(name: string, sets: WorkoutSet[]) {
+  function handleSheetSave(name: string, sets: WorkoutSet[], unit: WeightUnit) {
     if (!sheet) return
     if (sheet.mode === 'add') {
       if (isDrafting || !log) {
-        // Add to draft
-        setDraftExercises(prev => [...prev, { name, sets }])
+        setDraftExercises(prev => [...prev, { name, sets, weightUnit: unit }])
       } else {
-        // Append to saved log
         storage.saveWorkoutLog({
           id: log!.id, date: selectedDate, isRestDay: false,
-          exercises: [...log!.exercises, { name, sets }],
+          exercises: [...log!.exercises, { name, sets, weightUnit: unit }],
         })
         setRefresh(r => r + 1)
       }
     } else if (sheet.mode === 'edit') {
-      const updated = log!.exercises.map((e, i) => i === sheet.index ? { name, sets } : e)
+      const updated = log!.exercises.map((e, i) => i === sheet.index ? { name, sets, weightUnit: unit } : e)
       storage.saveWorkoutLog({ ...log!, exercises: updated })
       setRefresh(r => r + 1)
     } else if (sheet.mode === 'swap') {
-      setDraftExercises(prev => prev.map((d, i) => i === sheet.draftIndex ? { name, sets } : d))
+      setDraftExercises(prev => prev.map((d, i) => i === sheet.draftIndex ? { name, sets, weightUnit: unit } : d))
     }
     setSheet(null)
   }
@@ -855,6 +865,7 @@ export default function LogWorkout() {
     const drafts: DraftExercise[] = log.exercises.map(e => ({
       name: e.name,
       sets: e.sets.length ? [...e.sets] : [{ reps: 0 }],
+      weightUnit: e.weightUnit ?? workoutUnit,
     }))
     // Re-append any routine exercises not yet logged
     const routine = storage.getRoutine()
@@ -864,7 +875,7 @@ export default function LogWorkout() {
       const loggedNames = new Set(log.exercises.map(e => e.name.toLowerCase()))
       for (const re of routineDay.exercises) {
         if (!loggedNames.has(re.name.toLowerCase())) {
-          drafts.push({ name: re.name, sets: Array.from({ length: re.setCount }, () => ({ reps: 0 })) })
+          drafts.push({ name: re.name, sets: Array.from({ length: re.setCount }, () => ({ reps: 0 })), weightUnit: profile?.weightUnit ?? 'kg' })
         }
       }
     }
@@ -980,10 +991,10 @@ export default function LogWorkout() {
                 <CategoryHeader category={group.category} count={group.items.length} />
                 <div className="flex flex-col gap-2">
                   {group.items.map(({ item: d, idx: i }) => (
-                    <EditableExerciseCard key={i} draft={d} index={i} weightUnit={workoutUnit}
+                    <EditableExerciseCard key={i} draft={d} index={i}
                       onChange={updated => setDraftExercises(prev => prev.map((x, j) => j === i ? updated : x))}
                       onRemove={() => setDraftExercises(prev => prev.filter((_, j) => j !== i))}
-                      onSwapName={idx => setSheet({ mode: 'swap', draftIndex: idx, name: d.name, sets: d.sets })}
+                      onSwapName={idx => setSheet({ mode: 'swap', draftIndex: idx, name: d.name, sets: d.sets, weightUnit: d.weightUnit })}
                     />
                   ))}
                 </div>
@@ -1067,8 +1078,8 @@ export default function LogWorkout() {
       {sheet && (
         <ExerciseSheet
           initial={
-            sheet.mode === 'edit' ? { name: sheet.exercise.name, sets: sheet.exercise.sets }
-            : sheet.mode === 'swap' ? { name: sheet.name, sets: sheet.sets }
+            sheet.mode === 'edit' ? { name: sheet.exercise.name, sets: sheet.exercise.sets, weightUnit: sheet.exercise.weightUnit }
+            : sheet.mode === 'swap' ? { name: sheet.name, sets: sheet.sets, weightUnit: sheet.weightUnit }
             : undefined
           }
           weightUnit={workoutUnit}
