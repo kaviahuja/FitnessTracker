@@ -1,4 +1,5 @@
 import type { UserProfile, WeightLog, MealLog, WorkoutLog, WeeklyRoutine } from '../types'
+import { queueSync } from './supabase'
 
 const KEYS = {
   profile: 'fittrack_profile',
@@ -24,7 +25,7 @@ function set(key: string, value: unknown) {
 
 export const storage = {
   getProfile: () => get<UserProfile>(KEYS.profile),
-  saveProfile: (profile: UserProfile) => set(KEYS.profile, profile),
+  saveProfile: (profile: UserProfile) => { set(KEYS.profile, profile); queueSync() },
 
   getWeightLogs: (): WeightLog[] => get<WeightLog[]>(KEYS.weightLogs) ?? [],
   saveWeightLog: (log: WeightLog) => {
@@ -33,6 +34,7 @@ export const storage = {
     if (existing >= 0) logs[existing] = log
     else logs.push(log)
     set(KEYS.weightLogs, logs)
+    queueSync()
   },
 
   getMealLogs: (): MealLog[] => get<MealLog[]>(KEYS.mealLogs) ?? [],
@@ -42,10 +44,12 @@ export const storage = {
     if (existing >= 0) logs[existing] = log
     else logs.push(log)
     set(KEYS.mealLogs, logs)
+    queueSync()
   },
   deleteMealLog: (id: string) => {
     const logs = storage.getMealLogs().filter(l => l.id !== id)
     set(KEYS.mealLogs, logs)
+    queueSync()
   },
 
   getWorkoutLogs: (): WorkoutLog[] => get<WorkoutLog[]>(KEYS.workoutLogs) ?? [],
@@ -55,20 +59,22 @@ export const storage = {
     if (existing >= 0) logs[existing] = log
     else logs.push(log)
     set(KEYS.workoutLogs, logs)
+    queueSync()
   },
   deleteWorkoutLog: (date: string) => {
     const logs = storage.getWorkoutLogs().filter(l => l.date !== date)
     set(KEYS.workoutLogs, logs)
+    queueSync()
   },
 
   getRoutine: (): WeeklyRoutine => get<WeeklyRoutine>(KEYS.routine) ?? {},
-  saveRoutine: (routine: WeeklyRoutine) => set(KEYS.routine, routine),
+  saveRoutine: (routine: WeeklyRoutine) => { set(KEYS.routine, routine); queueSync() },
 
-  // Maps exercise name (lowercase) → muscle category
   getCustomExercises: (): Record<string, string> => get<Record<string, string>>(KEYS.customExercises) ?? {},
   saveCustomExercise: (name: string, category: string) => {
     const map = storage.getCustomExercises()
     map[name.toLowerCase()] = category
     set(KEYS.customExercises, map)
+    queueSync()
   },
 }

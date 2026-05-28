@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { storage } from '../lib/storage'
+import { supabase } from '../lib/supabase'
 import { calculateGoals, kgToLbs, lbsToKg, cmToFtIn, ftInToCm } from '../lib/calories'
 import type { Goal, Gender, WeightUnit, HeightUnit, DietPreference } from '../types'
 
@@ -354,6 +355,18 @@ export default function Profile() {
           }`}
         >
           {saved ? 'Saved' : 'Save Changes'}
+        </button>
+
+        {/* Sign out */}
+        <button
+          onClick={async () => {
+            await supabase.auth.signOut()
+            localStorage.clear()
+            window.location.reload()
+          }}
+          className="w-full font-semibold py-4 rounded-2xl border border-[#ff3b30]/30 text-[#ff3b30] bg-[#ff3b30]/5 active:scale-95 transition-all"
+        >
+          Sign Out
         </button>
 
       </div>

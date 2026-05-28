@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 import { storage } from './lib/storage'
+import { supabase, loadFromCloud } from './lib/supabase'
 import Onboarding from './onboarding/Onboarding'
+import Auth from './screens/Auth'
 import Home from './screens/Home'
 import LogFood from './screens/LogFood'
 import LogWeight from './screens/LogWeight'
@@ -57,9 +59,35 @@ const tabs = [
 ]
 
 export default function App() {
-  const [onboarded, setOnboarded] = useState(() => {
-    return storage.getProfile()?.onboardingComplete === true
-  })
+  const [authReady, setAuthReady] = useState(false)
+  const [authed, setAuthed] = useState(false)
+  const [onboarded, setOnboarded] = useState(false)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        await loadFromCloud()
+        setAuthed(true)
+        setOnboarded(storage.getProfile()?.onboardingComplete === true)
+      }
+      setAuthReady(true)
+    })
+  }, [])
+
+  if (!authReady) {
+    return (
+      <div className="flex h-full items-center justify-center bg-[#f5f5f7]">
+        <div className="w-8 h-8 border-2 border-[#e5e5ea] border-t-[#30d158] rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (!authed) {
+    return <Auth onAuth={() => {
+      setAuthed(true)
+      setOnboarded(storage.getProfile()?.onboardingComplete === true)
+    }} />
+  }
 
   if (!onboarded) {
     return <Onboarding onComplete={() => setOnboarded(true)} />
