@@ -53,6 +53,7 @@ export interface WorkoutSet {
 export interface Exercise {
   name: string
   sets: WorkoutSet[]
+  weightUnit?: WeightUnit
 }
 
 export interface WorkoutLog {
