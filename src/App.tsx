@@ -9,6 +9,7 @@ import LogFood from './screens/LogFood'
 import LogWeight from './screens/LogWeight'
 import LogWorkout from './screens/LogWorkout'
 import Profile from './screens/Profile'
+import ResetPassword from './screens/ResetPassword'
 
 function NavIcon({ name, active }: { name: string; active: boolean }) {
   const s = active ? 2 : 1.5
@@ -62,8 +63,15 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false)
   const [authed, setAuthed] = useState(false)
   const [onboarded, setOnboarded] = useState(false)
+  const [recovering, setRecovering] = useState(false)
 
   useEffect(() => {
+    // If the URL hash contains a recovery token, Supabase will fire PASSWORD_RECOVERY
+    // shortly after. Pre-set the flag so we don't briefly flash the main app.
+    if (window.location.hash.includes('type=recovery')) {
+      setRecovering(true)
+    }
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
         await loadFromCloud()
@@ -72,6 +80,24 @@ export default function App() {
       }
       setAuthReady(true)
     })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setRecovering(true)
+        setAuthReady(true)
+      } else if (event === 'SIGNED_IN' && session) {
+        await loadFromCloud()
+        setAuthed(true)
+        setOnboarded(storage.getProfile()?.onboardingComplete === true)
+        setAuthReady(true)
+      } else if (event === 'SIGNED_OUT') {
+        setAuthed(false)
+        setOnboarded(false)
+        setRecovering(false)
+      }
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   if (!authReady) {
@@ -80,6 +106,10 @@ export default function App() {
         <div className="w-8 h-8 border-2 border-[#e5e5ea] border-t-[#30d158] rounded-full animate-spin" />
       </div>
     )
+  }
+
+  if (recovering) {
+    return <ResetPassword onDone={() => setRecovering(false)} />
   }
 
   if (!authed) {

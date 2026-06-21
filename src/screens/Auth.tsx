@@ -8,6 +8,27 @@ export default function Auth({ onAuth }: { onAuth: () => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [signedUp, setSignedUp] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
+
+  async function handleForgotPassword() {
+    setError(null)
+    if (!email) {
+      setError('Enter your email first, then tap Forgot password')
+      return
+    }
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      })
+      if (error) throw error
+      setResetSent(true)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Something went wrong')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   async function handleSubmit() {
     setError(null)
@@ -28,6 +49,31 @@ export default function Auth({ onAuth }: { onAuth: () => void }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (resetSent) {
+    return (
+      <div className="flex flex-col h-full bg-[#f5f5f7] items-center justify-center px-6 gap-6">
+        <div className="w-16 h-16 bg-[#30d158]/10 rounded-2xl flex items-center justify-center">
+          <svg width="32" height="32" fill="none" stroke="#30d158" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+          </svg>
+        </div>
+        <div className="text-center">
+          <h2 className="text-[#1d1d1f] font-bold text-2xl">Check your email</h2>
+          <p className="text-[#6e6e73] text-sm mt-2 leading-relaxed">
+            We sent a password reset link to <span className="font-semibold text-[#1d1d1f]">{email}</span>.
+            Click it to choose a new password.
+          </p>
+        </div>
+        <button
+          onClick={() => setResetSent(false)}
+          className="w-full bg-[#1d1d1f] text-white font-semibold py-4 rounded-2xl"
+        >
+          Back to Sign In
+        </button>
+      </div>
+    )
   }
 
   if (signedUp) {
@@ -136,6 +182,16 @@ export default function Auth({ onAuth }: { onAuth: () => void }) {
             )}
           </button>
         </div>
+
+        {mode === 'signin' && (
+          <button
+            onClick={handleForgotPassword}
+            disabled={loading}
+            className="text-[#0071e3] text-sm font-medium text-center disabled:text-[#c7c7cc]"
+          >
+            Forgot password?
+          </button>
+        )}
 
         {mode === 'signup' && (
           <p className="text-[#8e8e93] text-xs text-center leading-relaxed">
