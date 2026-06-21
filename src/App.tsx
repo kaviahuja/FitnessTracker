@@ -72,21 +72,42 @@ export default function App() {
       setRecovering(true)
     }
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session) {
-        await loadFromCloud()
-        setAuthed(true)
-        setOnboarded(storage.getProfile()?.onboardingComplete === true)
-      }
+    // Safety net: if bootstrap hangs (stale JWT, slow refresh, network), proceed
+    // after 5s so the user never gets trapped on the loading spinner.
+    const safetyTimer = setTimeout(() => {
+      console.warn('Bootstrap timed out — proceeding with cached data')
       setAuthReady(true)
-    })
+    }, 5000)
+
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        if (session) {
+          // Render the app immediately from localStorage; refresh from cloud
+          // in the background so a hung loadFromCloud can't lock the UI.
+          setAuthed(true)
+          setOnboarded(storage.getProfile()?.onboardingComplete === true)
+          loadFromCloud()
+            .then(() => setOnboarded(storage.getProfile()?.onboardingComplete === true))
+            .catch(e => console.error('Background loadFromCloud failed', e))
+        }
+      })
+      .catch(e => console.error('getSession failed', e))
+      .finally(() => {
+        clearTimeout(safetyTimer)
+        setAuthReady(true)
+      })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setRecovering(true)
         setAuthReady(true)
       } else if (event === 'SIGNED_IN' && session) {
-        await loadFromCloud()
+        // Interactive sign-in: token is fresh, safe to await
+        try {
+          await loadFromCloud()
+        } catch (e) {
+          console.error('loadFromCloud on SIGNED_IN failed', e)
+        }
         setAuthed(true)
         setOnboarded(storage.getProfile()?.onboardingComplete === true)
         setAuthReady(true)
@@ -97,7 +118,10 @@ export default function App() {
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      clearTimeout(safetyTimer)
+      subscription.unsubscribe()
+    }
   }, [])
 
   if (!authReady) {

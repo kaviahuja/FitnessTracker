@@ -76,10 +76,11 @@ export async function loadFromCloud(): Promise<boolean> {
   console.log('loadFromCloud: data returned from Supabase', data)
 
   if (!data) {
-    // No cloud data yet — migrate existing localStorage data to cloud
-    const hasLocal = !!localStorage.getItem(KEYS.profile)
-    if (hasLocal) await syncToCloud()
-    return hasLocal
+    // New user — no cloud data exists. Wipe any leftover localStorage from a
+    // previous user on this browser so onboarding runs and we don't leak
+    // their data into this account on the next sync.
+    Object.values(KEYS).forEach(k => localStorage.removeItem(k))
+    return false
   }
 
   // Overwrite localStorage with cloud data

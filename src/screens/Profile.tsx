@@ -360,24 +360,28 @@ export default function Profile() {
         {/* Sign out */}
         <button
           onClick={async () => {
+            console.log('[signOut] clicked')
+            // Wrap in try/finally so the clear+reload always runs even if
+            // a step throws — we should never leave the user stranded.
             try {
-              // Flush any pending changes so we don't lose unsaved data on logout
-              const synced = await flushSync()
-              if (!synced) {
-                const proceed = window.confirm(
-                  'Could not save your latest changes to the cloud. Sign out anyway? Unsaved data will be lost.'
-                )
-                if (!proceed) return
-              }
-              // scope: 'local' clears the client session without a server round-trip,
-              // so a stale JWT or offline state can't hang the sign-out
+              // Best-effort flush: don't block sign-out for more than 3s
+              const flushed = await Promise.race([
+                flushSync(),
+                new Promise<boolean>(resolve => setTimeout(() => resolve(false), 3000)),
+              ])
+              console.log('[signOut] flush done, success=', flushed)
+
+              // scope: 'local' avoids a network round-trip so a stale JWT
+              // or offline state can't hang the sign-out
               const { error } = await supabase.auth.signOut({ scope: 'local' })
-              if (error) console.error('signOut error', error)
+              if (error) console.error('[signOut] supabase signOut error', error)
+              else console.log('[signOut] supabase session cleared')
+            } catch (e) {
+              console.error('[signOut] threw', e)
+            } finally {
+              console.log('[signOut] clearing localStorage and reloading')
               localStorage.clear()
               window.location.reload()
-            } catch (e) {
-              console.error('Sign out failed', e)
-              window.alert('Sign out failed: ' + (e instanceof Error ? e.message : 'unknown error'))
             }
           }}
           className="w-full font-semibold py-4 rounded-2xl border border-[#ff3b30]/30 text-[#ff3b30] bg-[#ff3b30]/5 active:scale-95 transition-all"
