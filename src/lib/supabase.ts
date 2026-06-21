@@ -14,24 +14,48 @@ const KEYS = {
   customExercises: 'fittrack_custom_exercises',
 }
 
+async function syncToCloud(): Promise<boolean> {
+  const { data: { user }, error: userErr } = await supabase.auth.getUser()
+  if (userErr) {
+    console.error('syncToCloud: getUser failed', userErr)
+    return false
+  }
+  if (!user) return false
+
+  const { error } = await supabase.from('user_data').upsert({
+    user_id: user.id,
+    profile: JSON.parse(localStorage.getItem(KEYS.profile) ?? 'null'),
+    weight_logs: JSON.parse(localStorage.getItem(KEYS.weightLogs) ?? '[]'),
+    meal_logs: JSON.parse(localStorage.getItem(KEYS.mealLogs) ?? '[]'),
+    workout_logs: JSON.parse(localStorage.getItem(KEYS.workoutLogs) ?? '[]'),
+    routine: JSON.parse(localStorage.getItem(KEYS.routine) ?? '{}'),
+    custom_exercises: JSON.parse(localStorage.getItem(KEYS.customExercises) ?? '{}'),
+    updated_at: new Date().toISOString(),
+  })
+
+  if (error) {
+    console.error('syncToCloud: upsert failed', error)
+    return false
+  }
+  return true
+}
+
 let syncTimer: ReturnType<typeof setTimeout> | null = null
 
 export function queueSync() {
   if (syncTimer) clearTimeout(syncTimer)
-  syncTimer = setTimeout(async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    await supabase.from('user_data').upsert({
-      user_id: user.id,
-      profile: JSON.parse(localStorage.getItem(KEYS.profile) ?? 'null'),
-      weight_logs: JSON.parse(localStorage.getItem(KEYS.weightLogs) ?? '[]'),
-      meal_logs: JSON.parse(localStorage.getItem(KEYS.mealLogs) ?? '[]'),
-      workout_logs: JSON.parse(localStorage.getItem(KEYS.workoutLogs) ?? '[]'),
-      routine: JSON.parse(localStorage.getItem(KEYS.routine) ?? '{}'),
-      custom_exercises: JSON.parse(localStorage.getItem(KEYS.customExercises) ?? '{}'),
-      updated_at: new Date().toISOString(),
-    })
+  syncTimer = setTimeout(() => {
+    syncTimer = null
+    syncToCloud()
   }, 1500)
+}
+
+export async function flushSync(): Promise<boolean> {
+  if (syncTimer) {
+    clearTimeout(syncTimer)
+    syncTimer = null
+  }
+  return syncToCloud()
 }
 
 export async function loadFromCloud(): Promise<boolean> {
@@ -54,18 +78,7 @@ export async function loadFromCloud(): Promise<boolean> {
   if (!data) {
     // No cloud data yet — migrate existing localStorage data to cloud
     const hasLocal = !!localStorage.getItem(KEYS.profile)
-    if (hasLocal) {
-      await supabase.from('user_data').upsert({
-        user_id: user.id,
-        profile: JSON.parse(localStorage.getItem(KEYS.profile) ?? 'null'),
-        weight_logs: JSON.parse(localStorage.getItem(KEYS.weightLogs) ?? '[]'),
-        meal_logs: JSON.parse(localStorage.getItem(KEYS.mealLogs) ?? '[]'),
-        workout_logs: JSON.parse(localStorage.getItem(KEYS.workoutLogs) ?? '[]'),
-        routine: JSON.parse(localStorage.getItem(KEYS.routine) ?? '{}'),
-        custom_exercises: JSON.parse(localStorage.getItem(KEYS.customExercises) ?? '{}'),
-        updated_at: new Date().toISOString(),
-      })
-    }
+    if (hasLocal) await syncToCloud()
     return hasLocal
   }
 

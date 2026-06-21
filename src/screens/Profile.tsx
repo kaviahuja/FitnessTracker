@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { storage } from '../lib/storage'
-import { supabase } from '../lib/supabase'
+import { supabase, flushSync } from '../lib/supabase'
 import { calculateGoals, kgToLbs, lbsToKg, cmToFtIn, ftInToCm } from '../lib/calories'
 import type { Goal, Gender, WeightUnit, HeightUnit, DietPreference } from '../types'
 
@@ -360,9 +360,25 @@ export default function Profile() {
         {/* Sign out */}
         <button
           onClick={async () => {
-            await supabase.auth.signOut()
-            localStorage.clear()
-            window.location.reload()
+            try {
+              // Flush any pending changes so we don't lose unsaved data on logout
+              const synced = await flushSync()
+              if (!synced) {
+                const proceed = window.confirm(
+                  'Could not save your latest changes to the cloud. Sign out anyway? Unsaved data will be lost.'
+                )
+                if (!proceed) return
+              }
+              // scope: 'local' clears the client session without a server round-trip,
+              // so a stale JWT or offline state can't hang the sign-out
+              const { error } = await supabase.auth.signOut({ scope: 'local' })
+              if (error) console.error('signOut error', error)
+              localStorage.clear()
+              window.location.reload()
+            } catch (e) {
+              console.error('Sign out failed', e)
+              window.alert('Sign out failed: ' + (e instanceof Error ? e.message : 'unknown error'))
+            }
           }}
           className="w-full font-semibold py-4 rounded-2xl border border-[#ff3b30]/30 text-[#ff3b30] bg-[#ff3b30]/5 active:scale-95 transition-all"
         >
