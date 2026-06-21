@@ -49,6 +49,8 @@ export async function loadFromCloud(): Promise<boolean> {
     return false
   }
 
+  console.log('loadFromCloud: data returned from Supabase', data)
+
   if (!data) {
     // No cloud data yet — migrate existing localStorage data to cloud
     const hasLocal = !!localStorage.getItem(KEYS.profile)
