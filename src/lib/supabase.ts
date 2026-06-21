@@ -38,11 +38,16 @@ export async function loadFromCloud(): Promise<boolean> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return false
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('user_data')
     .select('*')
     .eq('user_id', user.id)
     .maybeSingle()
+
+  if (error) {
+    console.error('loadFromCloud: failed to read user_data', error)
+    return false
+  }
 
   if (!data) {
     // No cloud data yet — migrate existing localStorage data to cloud

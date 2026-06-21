@@ -41,7 +41,8 @@ export default function Auth({ onAuth }: { onAuth: () => void }) {
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
-        await loadFromCloud()
+        const loaded = await loadFromCloud()
+        if (!loaded) console.warn('Sign-in succeeded but no cloud data was loaded')
         onAuth()
       }
     } catch (e: unknown) {
