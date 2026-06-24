@@ -207,6 +207,145 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
   )
 }
 
+// Copy source: either a single meal or all meals from a date
+type CopySource =
+  | { kind: 'meal'; log: MealLog }
+  | { kind: 'day'; date: string; logs: MealLog[] }
+
+function CopyMealModal({ source, onCopy, onClose }: {
+  source: CopySource
+  onCopy: (dates: string[]) => void
+  onClose: () => void
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [customDate, setCustomDate] = useState('')
+
+  const sourceDate = source.kind === 'meal' ? source.log.date : source.date
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0] })()
+  const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })()
+  const today = todayStr()
+
+  // Hide the source date itself from quick chips so users don't accidentally
+  // create a duplicate on the same day they're copying from.
+  const quickDates = [
+    { date: yesterday, label: 'Yesterday' },
+    { date: today, label: 'Today' },
+    { date: tomorrow, label: 'Tomorrow' },
+  ].filter(d => d.date !== sourceDate)
+
+  function toggle(date: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(date)) next.delete(date)
+      else next.add(date)
+      return next
+    })
+  }
+
+  function addCustom() {
+    if (!customDate) return
+    toggle(customDate)
+    setCustomDate('')
+  }
+
+  // Preview labels
+  const headerSub = source.kind === 'meal'
+    ? source.log.meal
+    : `${source.logs.length} meal${source.logs.length !== 1 ? 's' : ''} from ${formatDate(source.date)}`
+  const itemNames = source.kind === 'meal'
+    ? source.log.items.map(i => i.name).join(', ')
+    : source.logs.flatMap(l => l.items.map(i => i.name)).join(', ')
+  const totalCals = source.kind === 'meal'
+    ? source.log.items.reduce((s, i) => s + i.calories, 0)
+    : source.logs.reduce((s, l) => s + l.items.reduce((ss, i) => ss + i.calories, 0), 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-white rounded-t-3xl max-h-[88vh] flex flex-col overflow-hidden shadow-2xl">
+        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 bg-[#e5e5ea] rounded-full" />
+        </div>
+        <div className="overflow-y-auto flex-1 px-5 pb-8">
+          <div className="flex flex-col gap-5 py-4">
+            <div>
+              <p className="text-[#8e8e93] text-xs">Copy</p>
+              <h3 className="text-[#1d1d1f] font-bold text-xl mt-0.5">{headerSub}</h3>
+              {itemNames && <p className="text-[#6e6e73] text-sm mt-1 line-clamp-2">{itemNames}</p>}
+              <p className="text-[#8e8e93] text-xs mt-1">{totalCals} kcal</p>
+            </div>
+
+            {quickDates.length > 0 && (
+              <div>
+                <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Quick dates</p>
+                <div className="flex gap-2 flex-wrap">
+                  {quickDates.map(({ date, label }) => (
+                    <button
+                      key={date}
+                      onClick={() => toggle(date)}
+                      className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all active:scale-95 ${
+                        selected.has(date)
+                          ? 'bg-[#30d158] border-transparent text-white'
+                          : 'bg-[#f5f5f7] border-[#e5e5ea] text-[#1d1d1f]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Or pick a date</p>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={customDate}
+                  onChange={e => setCustomDate(e.target.value)}
+                  className="flex-1 bg-[#f5f5f7] border border-[#e5e5ea] rounded-xl px-4 py-2.5 text-[#1d1d1f] text-sm outline-none"
+                />
+                <button
+                  onClick={addCustom}
+                  disabled={!customDate || customDate === sourceDate}
+                  className="bg-[#0071e3] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-semibold px-4 rounded-xl text-sm active:scale-95 transition-all"
+                >
+                  Add
+                </button>
+              </div>
+              {customDate === sourceDate && (
+                <p className="text-[#ff9500] text-[10px] mt-1 px-0.5">Can't copy to the same day you're copying from</p>
+              )}
+            </div>
+
+            {selected.size > 0 && (
+              <div className="bg-[#f5f5f7] border border-[#e5e5ea] rounded-xl px-4 py-3">
+                <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Will copy to</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[...selected].sort().map(d => (
+                    <span key={d} className="bg-white border border-[#e5e5ea] rounded-lg pl-2.5 pr-1.5 py-1 text-xs text-[#1d1d1f] inline-flex items-center gap-1.5">
+                      {formatDate(d)}
+                      <button onClick={() => toggle(d)} className="text-[#c7c7cc] hover:text-[#ff3b30] text-[11px] leading-none">✕</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => onCopy([...selected])}
+              disabled={selected.size === 0}
+              className="w-full bg-[#30d158] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-semibold py-4 rounded-2xl active:scale-95 transition-all"
+            >
+              {selected.size === 0 ? 'Pick at least one date' : `Copy to ${selected.size} date${selected.size !== 1 ? 's' : ''}`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ItemEditor({ item, onChange, onDelete, hasUsdaKey }: { item: FoodItem; onChange: (u: FoodItem) => void; onDelete: () => void; hasUsdaKey: boolean }) {
   const [suggestions, setSuggestions] = useState<FoodSuggestion[]>([])
   const [searchError, setSearchError] = useState<string | null>(null)
@@ -392,6 +531,7 @@ export default function LogFood() {
   const [error, setError] = useState<string | null>(null)
   const [showApiKeys, setShowApiKeys] = useState(false)
   const [usdaKeySet, setUsdaKeySet] = useState(() => !!localStorage.getItem('fittrack_usda_key'))
+  const [copySource, setCopySource] = useState<CopySource | null>(null)
   const [, setRefresh] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dateInputRef = useRef<HTMLInputElement>(null)
@@ -446,6 +586,22 @@ export default function LogFood() {
     setRefresh(r => r + 1)
   }
 
+  function handleCopy(dates: string[]) {
+    if (!copySource || dates.length === 0) return
+    const sourceLogs = copySource.kind === 'meal' ? [copySource.log] : copySource.logs
+    for (const date of dates) {
+      for (const log of sourceLogs) {
+        storage.saveMealLog({
+          ...log,
+          id: uid(),
+          date,
+        })
+      }
+    }
+    setCopySource(null)
+    setRefresh(r => r + 1)
+  }
+
   const itemTotal = {
     cal: items.reduce((s, i) => s + (i.calories || 0), 0),
     p: items.reduce((s, i) => s + (i.protein || 0), 0),
@@ -456,6 +612,7 @@ export default function LogFood() {
   return (
     <div className="flex flex-col h-full bg-[#f5f5f7]">
       {showApiKeys && <ApiKeysModal onDismiss={() => setShowApiKeys(false)} onUsdaSaved={() => setUsdaKeySet(true)} />}
+      {copySource && <CopyMealModal source={copySource} onCopy={handleCopy} onClose={() => setCopySource(null)} />}
 
       {/* Header */}
       <div className="px-4 pt-14 pb-3 bg-[#f5f5f7] flex-shrink-0">
@@ -517,6 +674,20 @@ export default function LogFood() {
 
       {/* Meal sections */}
       <div className="flex-1 overflow-y-auto px-4 pb-28 flex flex-col gap-3 pt-2">
+        {mealLogs.length > 0 && (
+          <div className="flex justify-end -mb-1">
+            <button
+              onClick={() => setCopySource({ kind: 'day', date: selectedDate, logs: mealLogs })}
+              className="flex items-center gap-1.5 text-[#0071e3] text-xs font-semibold py-1 px-2 active:bg-[#0071e3]/10 rounded-lg transition-colors"
+            >
+              <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <rect x="9" y="9" width="13" height="13" rx="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              Copy day
+            </button>
+          </div>
+        )}
         {MEAL_TYPES.map(type => {
           const logs = mealLogs.filter(m => m.meal === type)
           const typeCals = logs.reduce((s, m) => s + m.items.reduce((ss, i) => ss + i.calories, 0), 0)
@@ -552,7 +723,19 @@ export default function LogFood() {
                           </div>
                         ))}
                       </div>
-                      <button onClick={() => deleteMealLog(log.id)} className="text-[#c7c7cc] text-sm leading-none mt-0.5">✕</button>
+                      <div className="flex items-start gap-1 flex-shrink-0 mt-0.5">
+                        <button
+                          onClick={() => setCopySource({ kind: 'meal', log })}
+                          title="Copy to another day"
+                          className="text-[#c7c7cc] active:text-[#0071e3] leading-none p-0.5"
+                        >
+                          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                        <button onClick={() => deleteMealLog(log.id)} className="text-[#c7c7cc] text-sm leading-none p-0.5">✕</button>
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -1,7 +1,27 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { storage } from '../lib/storage'
+
+type WeightRange = '1w' | '2w' | '1m' | '3m' | '6m'
+const RANGE_DAYS: Record<WeightRange, number> = { '1w': 7, '2w': 14, '1m': 30, '3m': 90, '6m': 180 }
+const RANGE_LABELS: Record<WeightRange, string> = { '1w': '1W', '2w': '2W', '1m': '1M', '3m': '3M', '6m': '6M' }
+
+function rangeDays(range: WeightRange): string[] {
+  const n = RANGE_DAYS[range]
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() - (n - 1 - i))
+    return d.toISOString().split('T')[0]
+  })
+}
+
+function tickLabel(dateStr: string, range: WeightRange): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  // Short weekday label for 1W; date label for everything longer.
+  if (range === '1w') return d.toLocaleDateString('en-US', { weekday: 'short' })
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
 
@@ -88,6 +108,7 @@ export default function Home() {
   const weightLogs = storage.getWeightLogs()
   const workoutLogs = storage.getWorkoutLogs()
   const routine = storage.getRoutine()
+  const [weightRange, setWeightRange] = useState<WeightRange>('1w')
 
   const todayNutrition = useMemo(() =>
     mealLogs.filter(m => m.date === today).reduce(
@@ -105,11 +126,11 @@ export default function Home() {
       date,
     })), [mealLogs, days])
 
-  const weight7Days = useMemo(() =>
-    days.map(date => {
+  const weightSeries = useMemo(() =>
+    rangeDays(weightRange).map(date => {
       const log = weightLogs.find(w => w.date === date)
-      return { day: shortDay(date), weight: log?.weight ?? null, date }
-    }).filter(d => d.weight !== null), [weightLogs, days])
+      return { label: tickLabel(date, weightRange), weight: log?.weight ?? null, date }
+    }).filter(d => d.weight !== null), [weightLogs, weightRange])
 
   const workoutWeekDays = useMemo(() =>
     currentWeekDays().map(date => {
@@ -244,24 +265,55 @@ export default function Home() {
 
       {/* Weight card */}
       <div className="bg-white rounded-2xl border border-[#e5e5ea] px-5 py-4 shadow-sm">
-        <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center justify-between mb-2">
           <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider">Weight Trend</p>
-          {weight7Days.length > 0 && (
+          {weightSeries.length > 0 && (
             <span className="text-[#1d1d1f] text-sm font-bold">
-              {weight7Days[weight7Days.length - 1].weight}{' '}
+              {weightSeries[weightSeries.length - 1].weight}{' '}
               <span className="text-[#8e8e93] font-normal">{profile?.weightUnit ?? 'kg'}</span>
             </span>
           )}
         </div>
-        {weight7Days.length < 2 ? (
-          <p className="text-[#c7c7cc] text-sm text-center py-6">Log weight on 2+ days to see your trend</p>
+        {/* Range chips */}
+        <div className="flex gap-1 mb-3">
+          {(['1w', '2w', '1m', '3m', '6m'] as WeightRange[]).map(r => (
+            <button
+              key={r}
+              onClick={() => setWeightRange(r)}
+              className={`flex-1 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                weightRange === r ? 'bg-[#0071e3] text-white shadow-sm' : 'bg-[#f5f5f7] text-[#8e8e93]'
+              }`}
+            >
+              {RANGE_LABELS[r]}
+            </button>
+          ))}
+        </div>
+        {weightSeries.length < 2 ? (
+          <p className="text-[#c7c7cc] text-sm text-center py-6">
+            {weightSeries.length === 0
+              ? `No weight logs in the last ${RANGE_LABELS[weightRange]} — log on 2+ days to see your trend`
+              : 'Log weight on 2+ days to see your trend'}
+          </p>
         ) : (
           <ResponsiveContainer width="100%" height={110}>
-            <LineChart data={weight7Days}>
-              <XAxis dataKey="day" tick={{ fill: '#8e8e93', fontSize: 10 }} axisLine={false} tickLine={false} />
+            <LineChart data={weightSeries}>
+              <XAxis
+                dataKey="label"
+                tick={{ fill: '#8e8e93', fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+                minTickGap={20}
+              />
               <YAxis domain={['auto', 'auto']} tick={{ fill: '#8e8e93', fontSize: 10 }} axisLine={false} tickLine={false} width={28} />
               <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e5e5ea', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }} formatter={(v: unknown) => [`${Number(v) || 0} ${profile?.weightUnit ?? 'kg'}`, 'Weight']} />
-              <Line type="monotone" dataKey="weight" stroke="#0071e3" strokeWidth={2.5} dot={{ fill: '#0071e3', r: 4, strokeWidth: 0 }} activeDot={{ r: 6, fill: '#0071e3' }} />
+              <Line
+                type="monotone"
+                dataKey="weight"
+                stroke="#0071e3"
+                strokeWidth={2.5}
+                dot={weightSeries.length <= 30 ? { fill: '#0071e3', r: 4, strokeWidth: 0 } : false}
+                activeDot={{ r: 6, fill: '#0071e3' }}
+              />
             </LineChart>
           </ResponsiveContainer>
         )}
