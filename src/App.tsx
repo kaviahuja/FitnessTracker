@@ -97,20 +97,19 @@ export default function App() {
         setAuthReady(true)
       })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setRecovering(true)
         setAuthReady(true)
       } else if (event === 'SIGNED_IN' && session) {
-        // Interactive sign-in: token is fresh, safe to await
-        try {
-          await loadFromCloud()
-        } catch (e) {
-          console.error('loadFromCloud on SIGNED_IN failed', e)
-        }
+        // Set state immediately from localStorage and refresh from cloud in the
+        // background — never block sign-in on the network.
         setAuthed(true)
         setOnboarded(storage.getProfile()?.onboardingComplete === true)
         setAuthReady(true)
+        loadFromCloud()
+          .then(() => setOnboarded(storage.getProfile()?.onboardingComplete === true))
+          .catch(e => console.error('loadFromCloud on SIGNED_IN failed', e))
       } else if (event === 'SIGNED_OUT') {
         setAuthed(false)
         setOnboarded(false)

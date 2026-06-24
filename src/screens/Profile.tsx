@@ -359,30 +359,25 @@ export default function Profile() {
 
         {/* Sign out */}
         <button
-          onClick={async () => {
+          onClick={() => {
             console.log('[signOut] clicked')
-            // Wrap in try/finally so the clear+reload always runs even if
-            // a step throws — we should never leave the user stranded.
-            try {
-              // Best-effort flush: don't block sign-out for more than 3s
-              const flushed = await Promise.race([
-                flushSync(),
-                new Promise<boolean>(resolve => setTimeout(() => resolve(false), 3000)),
-              ])
-              console.log('[signOut] flush done, success=', flushed)
-
-              // scope: 'local' avoids a network round-trip so a stale JWT
-              // or offline state can't hang the sign-out
-              const { error } = await supabase.auth.signOut({ scope: 'local' })
-              if (error) console.error('[signOut] supabase signOut error', error)
-              else console.log('[signOut] supabase session cleared')
-            } catch (e) {
-              console.error('[signOut] threw', e)
-            } finally {
-              console.log('[signOut] clearing localStorage and reloading')
-              localStorage.clear()
-              window.location.reload()
+            // Fire-and-forget any cleanup that touches the network — don't
+            // await anything. The reload below is the only thing that matters
+            // for the user-visible state.
+            flushSync().catch(e => console.error('[signOut] flush failed', e))
+            supabase.auth.signOut({ scope: 'local' })
+              .catch(e => console.error('[signOut] supabase signOut failed', e))
+            // Preserve device-level API keys (USDA, Claude) across sign-out —
+            // they belong to the device/user setup, not the account session.
+            const preserved: Record<string, string> = {}
+            for (const k of ['fittrack_usda_key', 'fittrack_claude_key']) {
+              const v = localStorage.getItem(k)
+              if (v) preserved[k] = v
             }
+            localStorage.clear()
+            sessionStorage.clear()
+            for (const [k, v] of Object.entries(preserved)) localStorage.setItem(k, v)
+            window.location.replace('/')
           }}
           className="w-full font-semibold py-4 rounded-2xl border border-[#ff3b30]/30 text-[#ff3b30] bg-[#ff3b30]/5 active:scale-95 transition-all"
         >

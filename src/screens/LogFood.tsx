@@ -69,17 +69,27 @@ type Per100g = { calories: number; protein: number; carbs: number; fat: number }
 type FoodSuggestion = { name: string; per100g: Per100g }
 type USDAFood = { description: string; foodNutrients: { nutrientId: number; value: number }[] }
 
-async function searchFoods(query: string): Promise<FoodSuggestion[]> {
+type SearchResult = { suggestions: FoodSuggestion[]; error: string | null }
+
+async function searchFoods(query: string): Promise<SearchResult> {
   const apiKey = localStorage.getItem('fittrack_usda_key')
-  if (!apiKey) return []
+  if (!apiKey) return { suggestions: [], error: 'Add USDA API key to enable search' }
   try {
     const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(query)}&api_key=${apiKey}&dataType=Foundation,SR%20Legacy&pageSize=6`
     const res = await fetch(url)
-    if (!res.ok) return []
+    if (!res.ok) {
+      console.error('USDA search failed:', res.status, res.statusText)
+      const reason = res.status === 403 || res.status === 401
+        ? 'USDA API key is invalid'
+        : res.status === 429
+        ? 'USDA rate limit reached — try again in a moment'
+        : `USDA API error (${res.status})`
+      return { suggestions: [], error: reason }
+    }
     const data = await res.json() as { foods?: USDAFood[] }
     const getNutrient = (food: USDAFood, id: number) =>
       food.foodNutrients.find(n => n.nutrientId === id)?.value ?? 0
-    return (data.foods ?? []).slice(0, 5).map(food => ({
+    const suggestions = (data.foods ?? []).slice(0, 5).map(food => ({
       name: food.description,
       per100g: {
         calories: Math.round(getNutrient(food, 1008)),
@@ -88,8 +98,10 @@ async function searchFoods(query: string): Promise<FoodSuggestion[]> {
         fat: Math.round(getNutrient(food, 1004) * 10) / 10,
       },
     }))
-  } catch {
-    return []
+    return { suggestions, error: null }
+  } catch (e) {
+    console.error('USDA search threw:', e)
+    return { suggestions: [], error: 'Network error — check your connection' }
   }
 }
 
@@ -197,6 +209,7 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
 
 function ItemEditor({ item, onChange, onDelete, hasUsdaKey }: { item: FoodItem; onChange: (u: FoodItem) => void; onDelete: () => void; hasUsdaKey: boolean }) {
   const [suggestions, setSuggestions] = useState<FoodSuggestion[]>([])
+  const [searchError, setSearchError] = useState<string | null>(null)
   const [per100g, setPer100g] = useState<Per100g | null>(null)
   const [weightG, setWeightG] = useState<string>('')
   const [searching, setSearching] = useState(false)
@@ -206,11 +219,14 @@ function ItemEditor({ item, onChange, onDelete, hasUsdaKey }: { item: FoodItem; 
   useEffect(() => {
     if (per100gRef.current !== null || item.name.length < 2) {
       setSuggestions([])
+      setSearchError(null)
       return
     }
     const t = setTimeout(async () => {
       setSearching(true)
-      setSuggestions(await searchFoods(item.name))
+      const result = await searchFoods(item.name)
+      setSuggestions(result.suggestions)
+      setSearchError(result.error)
       setSearching(false)
     }, 400)
     return () => clearTimeout(t)
@@ -294,8 +310,14 @@ function ItemEditor({ item, onChange, onDelete, hasUsdaKey }: { item: FoodItem; 
               onBlur={() => setTimeout(() => setSuggestions([]), 150)}
               className="block w-full bg-white border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none placeholder-[#c7c7cc] pr-8"
             />
-            {!hasUsdaKey && item.name.length === 0 && (
-              <p className="text-[#c7c7cc] text-[10px] mt-1 px-0.5">Add USDA key to enable food search</p>
+            {!hasUsdaKey && (
+              <p className="text-[#ff9500] text-[10px] mt-1 px-0.5">Add USDA key to enable food search</p>
+            )}
+            {hasUsdaKey && searchError && item.name.length >= 2 && per100g === null && (
+              <p className="text-[#ff3b30] text-[10px] mt-1 px-0.5">{searchError}</p>
+            )}
+            {hasUsdaKey && !searchError && !searching && suggestions.length === 0 && item.name.length >= 2 && per100g === null && (
+              <p className="text-[#8e8e93] text-[10px] mt-1 px-0.5">No matches — enter macros manually below</p>
             )}
             {searching && (
               <div className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-[#e5e5ea] border-t-[#30d158] rounded-full animate-spin pointer-events-none" />

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { supabase, loadFromCloud } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 
 export default function Auth({ onAuth }: { onAuth: () => void }) {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
@@ -41,8 +41,9 @@ export default function Auth({ onAuth }: { onAuth: () => void }) {
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
-        const loaded = await loadFromCloud()
-        if (!loaded) console.warn('Sign-in succeeded but no cloud data was loaded')
+        // Don't await loadFromCloud here — a hung cloud read would trap the
+        // Sign In button in loading state forever. App.tsx's SIGNED_IN handler
+        // will refresh from cloud in the background.
         onAuth()
       }
     } catch (e: unknown) {

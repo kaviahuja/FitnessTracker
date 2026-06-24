@@ -888,6 +888,23 @@ export default function LogWorkout() {
     storage.saveRoutine(r)
   }
 
+  // Day-level unit toggle: overrides every exercise's weightUnit for this day
+  // (both saved log and draft). Per-exercise toggle still wins on subsequent
+  // taps. Numbers are relabeled only — values are not converted.
+  function changeDayUnit(unit: WeightUnit) {
+    setWorkoutUnit(unit)
+    if (log && !log.isRestDay && log.exercises.length > 0) {
+      storage.saveWorkoutLog({
+        ...log,
+        exercises: log.exercises.map(e => ({ ...e, weightUnit: unit })),
+      })
+      setRefresh(r => r + 1)
+    }
+    if (draftExercises.length > 0) {
+      setDraftExercises(prev => prev.map(d => ({ ...d, weightUnit: unit })))
+    }
+  }
+
   const canSaveDraft = draftExercises.some(d => d.sets.some(s => s.reps > 0))
 
   return (
@@ -928,7 +945,7 @@ export default function LogWorkout() {
           <p className="text-[#8e8e93] text-sm">{formatFullDate(selectedDate)}</p>
           <div className="flex bg-[#f0f0f5] rounded-lg p-0.5">
             {(['kg', 'lbs'] as WeightUnit[]).map(u => (
-              <button key={u} onClick={() => setWorkoutUnit(u)}
+              <button key={u} onClick={() => changeDayUnit(u)}
                 className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${workoutUnit === u ? 'bg-white text-[#1d1d1f] shadow-sm' : 'text-[#8e8e93]'}`}>
                 {u}
               </button>
