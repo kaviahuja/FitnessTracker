@@ -532,6 +532,7 @@ export default function LogFood() {
   const [showApiKeys, setShowApiKeys] = useState(false)
   const [usdaKeySet, setUsdaKeySet] = useState(() => !!localStorage.getItem('fittrack_usda_key'))
   const [copySource, setCopySource] = useState<CopySource | null>(null)
+  const [editingMealId, setEditingMealId] = useState<string | null>(null)
   const [, setRefresh] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dateInputRef = useRef<HTMLInputElement>(null)
@@ -555,6 +556,17 @@ export default function LogFood() {
     setPhotoPreview(null)
     setError(null)
     setItems([])
+    setEditingMealId(null)
+  }
+
+  function openEdit(log: MealLog) {
+    setSelectedMeal(log.meal as MealType)
+    setSelectedDate(log.date)
+    setItems(log.items.length ? log.items : [emptyItem()])
+    setPhotoPreview(log.photoUrl ?? null)
+    setError(null)
+    setEditingMealId(log.id)
+    setStep('manual-add')
   }
 
   async function handlePhoto(file: File) {
@@ -576,7 +588,10 @@ export default function LogFood() {
   function saveMeal() {
     const validItems = items.filter(i => i.name.trim())
     if (!validItems.length) return
-    storage.saveMealLog({ id: uid(), date: selectedDate, meal: selectedMeal, items: validItems, ...(photoPreview ? { photoUrl: photoPreview } : {}) } as MealLog)
+    // Reuse existing id when editing so storage.saveMealLog updates the row
+    // instead of creating a duplicate.
+    const id = editingMealId ?? uid()
+    storage.saveMealLog({ id, date: selectedDate, meal: selectedMeal, items: validItems, ...(photoPreview ? { photoUrl: photoPreview } : {}) } as MealLog)
     setRefresh(r => r + 1)
     closeSheet()
   }
@@ -725,6 +740,16 @@ export default function LogFood() {
                       </div>
                       <div className="flex items-start gap-1 flex-shrink-0 mt-0.5">
                         <button
+                          onClick={() => openEdit(log)}
+                          title="Edit"
+                          className="text-[#c7c7cc] active:text-[#0071e3] leading-none p-0.5"
+                        >
+                          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
+                        <button
                           onClick={() => setCopySource({ kind: 'meal', log })}
                           title="Copy to another day"
                           className="text-[#c7c7cc] active:text-[#0071e3] leading-none p-0.5"
@@ -840,7 +865,7 @@ export default function LogFood() {
                 <div className="flex flex-col gap-4 py-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-[#1d1d1f] font-semibold text-xl">
-                      {step === 'review' ? 'Review & Edit' : 'Add Items'}
+                      {step === 'review' ? 'Review & Edit' : editingMealId ? 'Edit Meal' : 'Add Items'}
                     </h3>
                     <span className="text-sm text-[#8e8e93]">{selectedMeal}</span>
                   </div>
@@ -887,7 +912,7 @@ export default function LogFood() {
                     disabled={!items.some(i => i.name.trim())}
                     className="w-full bg-[#30d158] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-semibold py-4 rounded-2xl active:scale-95 transition-all"
                   >
-                    Save {selectedMeal}
+                    {editingMealId ? 'Update' : 'Save'} {selectedMeal}
                   </button>
                 </div>
               )}
