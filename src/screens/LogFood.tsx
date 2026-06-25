@@ -661,7 +661,6 @@ export default function LogFood() {
             ref={dateInputRef}
             type="date"
             value={selectedDate}
-            max={todayStr()}
             onChange={e => { if (e.target.value) setSelectedDate(e.target.value) }}
             className="absolute opacity-0 pointer-events-none w-0 h-0"
           />
