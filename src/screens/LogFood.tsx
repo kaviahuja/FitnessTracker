@@ -617,6 +617,11 @@ export default function LogFood() {
         })
       }
     }
+    // Navigate to the first destination date so the user immediately sees
+    // the copied meal land. Without this, the copy succeeds silently — the
+    // new meal exists on a date the user isn't currently viewing.
+    const sortedDates = [...dates].sort()
+    setSelectedDate(sortedDates[0])
     setCopySource(null)
     setRefresh(r => r + 1)
   }
@@ -729,11 +734,11 @@ export default function LogFood() {
               {logs.length > 0 && (
                 <div className="border-t border-[#f0f0f5] divide-y divide-[#f0f0f5]">
                   {logs.map(log => (
-                    <div key={log.id} className="px-4 py-2.5 flex items-start gap-2">
-                      <div className="flex-1">
+                    <div key={log.id} className="px-4 py-3.5 flex items-start gap-3">
+                      <div className="flex-1 min-w-0 flex flex-col gap-1">
                         {log.items.map((item, i) => (
-                          <div key={i} className="flex justify-between text-sm py-0.5">
-                            <span className="text-[#1d1d1f]">
+                          <div key={i} className="flex justify-between text-sm">
+                            <span className="text-[#1d1d1f] truncate">
                               {item.name}
                               {item.amount ? <span className="text-[#8e8e93] text-xs ml-1">({item.amount})</span> : null}
                             </span>
@@ -741,13 +746,13 @@ export default function LogFood() {
                           </div>
                         ))}
                       </div>
-                      <div className="flex items-start gap-1 flex-shrink-0 mt-0.5">
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button
                           onClick={() => openEdit(log)}
                           title="Edit"
-                          className="text-[#c7c7cc] active:text-[#0071e3] leading-none p-0.5"
+                          className="w-8 h-8 bg-[#f5f5f7] rounded-full flex items-center justify-center text-[#8e8e93] active:text-[#0071e3] active:bg-[#e5e5ea] transition-colors"
                         >
-                          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                           </svg>
@@ -755,14 +760,22 @@ export default function LogFood() {
                         <button
                           onClick={() => setCopySource({ kind: 'meal', log })}
                           title="Copy to another day"
-                          className="text-[#c7c7cc] active:text-[#0071e3] leading-none p-0.5"
+                          className="w-8 h-8 bg-[#f5f5f7] rounded-full flex items-center justify-center text-[#8e8e93] active:text-[#0071e3] active:bg-[#e5e5ea] transition-colors"
                         >
-                          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                             <rect x="9" y="9" width="13" height="13" rx="2" />
                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                           </svg>
                         </button>
-                        <button onClick={() => deleteMealLog(log.id)} className="text-[#c7c7cc] text-sm leading-none p-0.5">✕</button>
+                        <button
+                          onClick={() => deleteMealLog(log.id)}
+                          title="Delete"
+                          className="w-8 h-8 bg-[#f5f5f7] rounded-full flex items-center justify-center text-[#8e8e93] active:text-[#ff3b30] active:bg-[#e5e5ea] transition-colors"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   ))}
