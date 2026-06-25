@@ -14,6 +14,11 @@ const KEYS = {
   customExercises: 'fittrack_custom_exercises',
 }
 
+const API_KEYS = {
+  usda: 'fittrack_usda_key',
+  claude: 'fittrack_claude_key',
+}
+
 async function syncToCloud(): Promise<boolean> {
   const { data: { user }, error: userErr } = await supabase.auth.getUser()
   if (userErr) {
@@ -30,6 +35,10 @@ async function syncToCloud(): Promise<boolean> {
     workout_logs: JSON.parse(localStorage.getItem(KEYS.workoutLogs) ?? '[]'),
     routine: JSON.parse(localStorage.getItem(KEYS.routine) ?? '{}'),
     custom_exercises: JSON.parse(localStorage.getItem(KEYS.customExercises) ?? '{}'),
+    api_keys: {
+      usda: localStorage.getItem(API_KEYS.usda) ?? null,
+      claude: localStorage.getItem(API_KEYS.claude) ?? null,
+    },
     updated_at: new Date().toISOString(),
   })
 
@@ -90,5 +99,10 @@ export async function loadFromCloud(): Promise<boolean> {
   localStorage.setItem(KEYS.workoutLogs, JSON.stringify(data.workout_logs ?? []))
   localStorage.setItem(KEYS.routine, JSON.stringify(data.routine ?? {}))
   localStorage.setItem(KEYS.customExercises, JSON.stringify(data.custom_exercises ?? {}))
+  // Restore API keys from cloud — so they survive sign-outs, "Clear site data",
+  // and switching devices. Only set if cloud has a value (don't overwrite a
+  // local key with null).
+  if (data.api_keys?.usda) localStorage.setItem(API_KEYS.usda, data.api_keys.usda)
+  if (data.api_keys?.claude) localStorage.setItem(API_KEYS.claude, data.api_keys.claude)
   return true
 }

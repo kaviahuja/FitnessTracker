@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { storage } from '../lib/storage'
+import { queueSync } from '../lib/supabase'
 import type { FoodItem, MealLog } from '../types'
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
@@ -130,6 +131,9 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
   function save() {
     if (usdaKey.trim()) localStorage.setItem('fittrack_usda_key', usdaKey.trim())
     if (claudeKey.trim()) localStorage.setItem('fittrack_claude_key', claudeKey.trim())
+    // Push to cloud so the keys survive sign-outs and follow the user to
+    // any device — see api_keys column on user_data.
+    queueSync()
     onUsdaSaved()
     setSaved(true)
     setTimeout(() => { setSaved(false); onDismiss() }, 800)
