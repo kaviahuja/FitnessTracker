@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { storage } from '../lib/storage'
-import { queueSync } from '../lib/supabase'
+import { flushSync } from '../lib/supabase'
 import type { FoodItem, MealLog } from '../types'
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
@@ -127,19 +127,29 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
   const [usdaKey, setUsdaKey] = useState(() => localStorage.getItem('fittrack_usda_key') ?? '')
   const [claudeKey, setClaudeKey] = useState(() => localStorage.getItem('fittrack_claude_key') ?? '')
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  function save() {
+  async function save() {
+    setError(null)
     if (usdaKey.trim()) localStorage.setItem('fittrack_usda_key', usdaKey.trim())
     if (claudeKey.trim()) localStorage.setItem('fittrack_claude_key', claudeKey.trim())
-    // Push to cloud so the keys survive sign-outs and follow the user to
-    // any device — see api_keys column on user_data.
-    queueSync()
+    setSaving(true)
+    // Sync immediately (no debounce) so we can surface any cloud-write
+    // failure to the user instead of silently losing the keys on next
+    // sign-out. flushSync awaits the upsert and returns true on success.
+    const success = await flushSync()
+    setSaving(false)
+    if (!success) {
+      setError('Saved locally, but cloud sync failed. Check the browser console for details and verify the api_keys column exists on user_data.')
+      return
+    }
     onUsdaSaved()
     setSaved(true)
     setTimeout(() => { setSaved(false); onDismiss() }, 800)
   }
 
-  const canSave = usdaKey.trim().length >= 8 || claudeKey.trim().length >= 10
+  const canSave = !saving && (usdaKey.trim().length >= 8 || claudeKey.trim().length >= 10)
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end z-50 px-4 pb-6">
@@ -196,6 +206,12 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
           />
         </div>
 
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 text-red-600 text-xs leading-snug">
+            {error}
+          </div>
+        )}
+
         <div className="flex gap-3 mt-1">
           <button onClick={onDismiss} className="flex-1 bg-[#f5f5f7] text-[#1d1d1f] font-medium py-3 rounded-xl">Cancel</button>
           <button
@@ -203,7 +219,7 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
             disabled={!canSave}
             className={`flex-1 font-semibold py-3 rounded-xl transition-colors ${saved ? 'bg-[#30d158] text-white' : 'bg-[#0071e3] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white'}`}
           >
-            {saved ? 'Saved ✓' : 'Save Keys'}
+            {saved ? 'Saved ✓' : saving ? 'Saving…' : 'Save Keys'}
           </button>
         </div>
       </div>
