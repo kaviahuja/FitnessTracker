@@ -223,17 +223,17 @@ function CopyMealModal({ source, onCopy, onClose }: {
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const sourceDate = source.kind === 'meal' ? source.log.date : source.date
-  const today = todayStr()
 
-  // 7 days centered on today: 3 past, today, 3 future. Source date is
-  // excluded so users can't accidentally duplicate to the same day.
-  const dayGrid: string[] = []
-  for (let i = -3; i <= 3; i++) {
-    const d = new Date()
-    d.setDate(d.getDate() + i)
-    const s = d.toISOString().split('T')[0]
-    if (s !== sourceDate) dayGrid.push(s)
-  }
+  const today = todayStr()
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0] })()
+  const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })()
+
+  // Hide the source date itself so users can't duplicate to the same day
+  const quickDates = [
+    { date: yesterday, label: 'Yesterday' },
+    { date: today, label: 'Today' },
+    { date: tomorrow, label: 'Tomorrow' },
+  ].filter(d => d.date !== sourceDate)
 
   function toggle(date: string) {
     setSelected(prev => {
@@ -244,15 +244,11 @@ function CopyMealModal({ source, onCopy, onClose }: {
     })
   }
 
+  // Any date picked in the date input is auto-added to selected so the user
+  // doesn't need a separate "Add" step. This was the previous friction.
   function onDatePicked(date: string) {
     if (!date || date === sourceDate) return
     setSelected(prev => new Set(prev).add(date))
-  }
-
-  function labelForDate(d: string): string {
-    const date = new Date(d + 'T00:00:00')
-    if (d === today) return 'Today'
-    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
   }
 
   // Preview labels
@@ -283,41 +279,37 @@ function CopyMealModal({ source, onCopy, onClose }: {
               <p className="text-[#8e8e93] text-xs mt-1">From {formatDate(sourceDate)} · {totalCals} kcal</p>
             </div>
 
-            {/* 7-day grid */}
-            <div>
-              <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Pick day(s)</p>
-              <div className="grid grid-cols-2 gap-2">
-                {dayGrid.map(date => {
-                  const isSelected = selected.has(date)
-                  const isToday = date === today
-                  return (
+            {/* Quick date chips */}
+            {quickDates.length > 0 && (
+              <div>
+                <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Quick pick</p>
+                <div className="flex gap-2">
+                  {quickDates.map(({ date, label }) => (
                     <button
                       key={date}
                       onClick={() => toggle(date)}
-                      className={`py-3 px-3 rounded-xl text-sm font-semibold border-2 transition-all active:scale-95 ${
-                        isSelected
+                      className={`flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-all active:scale-95 ${
+                        selected.has(date)
                           ? 'bg-[#30d158] border-[#30d158] text-white'
-                          : isToday
-                          ? 'bg-white border-[#0071e3] text-[#0071e3]'
                           : 'bg-[#f5f5f7] border-[#e5e5ea] text-[#1d1d1f]'
                       }`}
                     >
-                      {labelForDate(date)}
+                      {label}
                     </button>
-                  )
-                })}
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Any other date */}
+            {/* Any other date — auto-adds on pick */}
             <div>
-              <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Any other date</p>
+              <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Or pick any date</p>
               <input
                 type="date"
                 onChange={e => onDatePicked(e.target.value)}
                 className="w-full bg-[#f5f5f7] border border-[#e5e5ea] rounded-xl px-4 py-3 text-[#1d1d1f] text-base outline-none"
               />
-              <p className="text-[#8e8e93] text-[10px] mt-1 px-0.5">Pick any date — it's added to your selection below.</p>
+              <p className="text-[#8e8e93] text-[10px] mt-1 px-0.5">Picking a date adds it to your selection below.</p>
             </div>
 
             {/* Selected summary */}
@@ -746,12 +738,12 @@ export default function LogFood() {
                           </div>
                         ))}
                       </div>
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                         <button
                           onClick={() => openEdit(log)}
-                          className="flex-1 bg-[#f5f5f7] active:bg-[#e5e5ea] text-[#0071e3] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                          className="bg-[#0071e3]/10 border border-[#0071e3]/30 text-[#0071e3] py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 active:bg-[#0071e3]/20 transition-colors"
                         >
-                          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                           </svg>
@@ -759,9 +751,9 @@ export default function LogFood() {
                         </button>
                         <button
                           onClick={() => setCopySource({ kind: 'meal', log })}
-                          className="flex-1 bg-[#f5f5f7] active:bg-[#e5e5ea] text-[#0071e3] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                          className="bg-[#30d158]/10 border border-[#30d158]/40 text-[#1e8e3e] py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 active:bg-[#30d158]/20 transition-colors"
                         >
-                          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                             <rect x="9" y="9" width="13" height="13" rx="2" />
                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                           </svg>
@@ -769,10 +761,10 @@ export default function LogFood() {
                         </button>
                         <button
                           onClick={() => deleteMealLog(log.id)}
-                          className="flex-1 bg-[#f5f5f7] active:bg-[#fff0f0] text-[#ff3b30] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                          className="bg-[#ff3b30]/10 border border-[#ff3b30]/30 text-[#ff3b30] py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 active:bg-[#ff3b30]/20 transition-colors"
                         >
-                          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
                           </svg>
                           Delete
                         </button>
