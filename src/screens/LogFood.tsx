@@ -562,17 +562,6 @@ export default function LogFood() {
     setReplacingLogIds([])
   }
 
-  function openEdit(log: MealLog) {
-    setSelectedMeal(log.meal as MealType)
-    setSelectedDate(log.date)
-    setItems(log.items.length ? log.items : [emptyItem()])
-    setPhotoPreview(log.photoUrl ?? null)
-    setError(null)
-    setEditingMealId(log.id)
-    setReplacingLogIds([])
-    setStep('manual-add')
-  }
-
   // Edit all logs of a meal type for the current day as one unit. On save we
   // delete every old log of that type and write a single consolidated one.
   function openEditMealType(meal: MealType) {
@@ -623,11 +612,6 @@ export default function LogFood() {
     storage.saveMealLog({ id, date: selectedDate, meal: selectedMeal, items: validItems, ...(photoPreview ? { photoUrl: photoPreview } : {}) } as MealLog)
     setRefresh(r => r + 1)
     closeSheet()
-  }
-
-  function deleteMealLog(id: string) {
-    storage.deleteMealLog(id)
-    setRefresh(r => r + 1)
   }
 
   function handleCopy(dates: string[]) {
