@@ -265,28 +265,33 @@ export default function Home() {
 
       {/* Weight card */}
       <div className="bg-white rounded-2xl border border-[#e5e5ea] px-5 py-4 shadow-sm">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider">Weight Trend</p>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider">Weight Trend</p>
+            <div className="relative">
+              <select
+                value={weightRange}
+                onChange={e => setWeightRange(e.target.value as WeightRange)}
+                className="appearance-none bg-[#f5f5f7] border border-[#e5e5ea] rounded-md text-[#1d1d1f] text-[11px] font-bold pl-2 pr-6 py-1 outline-none cursor-pointer"
+              >
+                {(['1w', '2w', '1m', '3m', '6m'] as WeightRange[]).map(r => (
+                  <option key={r} value={r}>{RANGE_LABELS[r]}</option>
+                ))}
+              </select>
+              <svg
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                width="9" height="9" viewBox="0 0 12 12" fill="none"
+              >
+                <path d="M3 4.5l3 3 3-3" stroke="#8e8e93" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+          </div>
           {weightSeries.length > 0 && (
             <span className="text-[#1d1d1f] text-sm font-bold">
               {weightSeries[weightSeries.length - 1].weight}{' '}
               <span className="text-[#8e8e93] font-normal">{profile?.weightUnit ?? 'kg'}</span>
             </span>
           )}
-        </div>
-        {/* Range chips */}
-        <div className="flex gap-1 mb-3">
-          {(['1w', '2w', '1m', '3m', '6m'] as WeightRange[]).map(r => (
-            <button
-              key={r}
-              onClick={() => setWeightRange(r)}
-              className={`flex-1 py-1 rounded-md text-[11px] font-semibold transition-all ${
-                weightRange === r ? 'bg-[#0071e3] text-white shadow-sm' : 'bg-[#f5f5f7] text-[#8e8e93]'
-              }`}
-            >
-              {RANGE_LABELS[r]}
-            </button>
-          ))}
         </div>
         {weightSeries.length < 2 ? (
           <p className="text-[#c7c7cc] text-sm text-center py-6">
