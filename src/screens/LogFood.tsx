@@ -222,20 +222,18 @@ function CopyMealModal({ source, onCopy, onClose }: {
   onClose: () => void
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [customDate, setCustomDate] = useState('')
-
   const sourceDate = source.kind === 'meal' ? source.log.date : source.date
-  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0] })()
-  const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })()
   const today = todayStr()
 
-  // Hide the source date itself from quick chips so users don't accidentally
-  // create a duplicate on the same day they're copying from.
-  const quickDates = [
-    { date: yesterday, label: 'Yesterday' },
-    { date: today, label: 'Today' },
-    { date: tomorrow, label: 'Tomorrow' },
-  ].filter(d => d.date !== sourceDate)
+  // 7 days centered on today: 3 past, today, 3 future. Source date is
+  // excluded so users can't accidentally duplicate to the same day.
+  const dayGrid: string[] = []
+  for (let i = -3; i <= 3; i++) {
+    const d = new Date()
+    d.setDate(d.getDate() + i)
+    const s = d.toISOString().split('T')[0]
+    if (s !== sourceDate) dayGrid.push(s)
+  }
 
   function toggle(date: string) {
     setSelected(prev => {
@@ -246,10 +244,15 @@ function CopyMealModal({ source, onCopy, onClose }: {
     })
   }
 
-  function addCustom() {
-    if (!customDate) return
-    toggle(customDate)
-    setCustomDate('')
+  function onDatePicked(date: string) {
+    if (!date || date === sourceDate) return
+    setSelected(prev => new Set(prev).add(date))
+  }
+
+  function labelForDate(d: string): string {
+    const date = new Date(d + 'T00:00:00')
+    if (d === today) return 'Today'
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
   }
 
   // Preview labels
@@ -265,83 +268,80 @@ function CopyMealModal({ source, onCopy, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative bg-white rounded-t-3xl max-h-[88vh] flex flex-col overflow-hidden shadow-2xl">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-t-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl">
         <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
           <div className="w-10 h-1 bg-[#e5e5ea] rounded-full" />
         </div>
         <div className="overflow-y-auto flex-1 px-5 pb-8">
           <div className="flex flex-col gap-5 py-4">
+            {/* Source preview */}
             <div>
-              <p className="text-[#8e8e93] text-xs">Copy</p>
+              <p className="text-[#8e8e93] text-xs uppercase tracking-wider">Copying</p>
               <h3 className="text-[#1d1d1f] font-bold text-xl mt-0.5">{headerSub}</h3>
               {itemNames && <p className="text-[#6e6e73] text-sm mt-1 line-clamp-2">{itemNames}</p>}
-              <p className="text-[#8e8e93] text-xs mt-1">{totalCals} kcal</p>
+              <p className="text-[#8e8e93] text-xs mt-1">From {formatDate(sourceDate)} · {totalCals} kcal</p>
             </div>
 
-            {quickDates.length > 0 && (
-              <div>
-                <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Quick dates</p>
-                <div className="flex gap-2 flex-wrap">
-                  {quickDates.map(({ date, label }) => (
+            {/* 7-day grid */}
+            <div>
+              <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Pick day(s)</p>
+              <div className="grid grid-cols-2 gap-2">
+                {dayGrid.map(date => {
+                  const isSelected = selected.has(date)
+                  const isToday = date === today
+                  return (
                     <button
                       key={date}
                       onClick={() => toggle(date)}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all active:scale-95 ${
-                        selected.has(date)
-                          ? 'bg-[#30d158] border-transparent text-white'
+                      className={`py-3 px-3 rounded-xl text-sm font-semibold border-2 transition-all active:scale-95 ${
+                        isSelected
+                          ? 'bg-[#30d158] border-[#30d158] text-white'
+                          : isToday
+                          ? 'bg-white border-[#0071e3] text-[#0071e3]'
                           : 'bg-[#f5f5f7] border-[#e5e5ea] text-[#1d1d1f]'
                       }`}
                     >
-                      {label}
+                      {labelForDate(date)}
                     </button>
-                  ))}
-                </div>
+                  )
+                })}
               </div>
-            )}
-
-            <div>
-              <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Or pick a date</p>
-              <div className="flex gap-2">
-                <input
-                  type="date"
-                  value={customDate}
-                  onChange={e => setCustomDate(e.target.value)}
-                  className="flex-1 bg-[#f5f5f7] border border-[#e5e5ea] rounded-xl px-4 py-2.5 text-[#1d1d1f] text-sm outline-none"
-                />
-                <button
-                  onClick={addCustom}
-                  disabled={!customDate || customDate === sourceDate}
-                  className="bg-[#0071e3] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-semibold px-4 rounded-xl text-sm active:scale-95 transition-all"
-                >
-                  Add
-                </button>
-              </div>
-              {customDate === sourceDate && (
-                <p className="text-[#ff9500] text-[10px] mt-1 px-0.5">Can't copy to the same day you're copying from</p>
-              )}
             </div>
 
+            {/* Any other date */}
+            <div>
+              <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Any other date</p>
+              <input
+                type="date"
+                onChange={e => onDatePicked(e.target.value)}
+                className="w-full bg-[#f5f5f7] border border-[#e5e5ea] rounded-xl px-4 py-3 text-[#1d1d1f] text-base outline-none"
+              />
+              <p className="text-[#8e8e93] text-[10px] mt-1 px-0.5">Pick any date — it's added to your selection below.</p>
+            </div>
+
+            {/* Selected summary */}
             {selected.size > 0 && (
-              <div className="bg-[#f5f5f7] border border-[#e5e5ea] rounded-xl px-4 py-3">
-                <p className="text-[#8e8e93] text-xs font-semibold uppercase tracking-wider mb-2">Will copy to</p>
+              <div className="bg-[#0071e3]/8 border border-[#0071e3]/20 rounded-xl px-4 py-3">
+                <p className="text-[#0071e3] text-xs font-semibold uppercase tracking-wider mb-2">Selected ({selected.size})</p>
                 <div className="flex gap-1.5 flex-wrap">
                   {[...selected].sort().map(d => (
-                    <span key={d} className="bg-white border border-[#e5e5ea] rounded-lg pl-2.5 pr-1.5 py-1 text-xs text-[#1d1d1f] inline-flex items-center gap-1.5">
+                    <span key={d} className="bg-white border border-[#0071e3]/30 rounded-lg pl-2.5 pr-1.5 py-1 text-xs text-[#1d1d1f] inline-flex items-center gap-1.5">
                       {formatDate(d)}
-                      <button onClick={() => toggle(d)} className="text-[#c7c7cc] hover:text-[#ff3b30] text-[11px] leading-none">✕</button>
+                      <button onClick={() => toggle(d)} className="text-[#0071e3] active:text-[#ff3b30] text-[11px] leading-none w-4 h-4 flex items-center justify-center">✕</button>
                     </span>
                   ))}
                 </div>
               </div>
             )}
 
+            {/* Copy button */}
             <button
               onClick={() => onCopy([...selected])}
               disabled={selected.size === 0}
-              className="w-full bg-[#30d158] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-semibold py-4 rounded-2xl active:scale-95 transition-all"
+              className="w-full bg-[#30d158] disabled:bg-[#e5e5ea] disabled:text-[#c7c7cc] text-white font-bold py-4 rounded-2xl text-base active:scale-95 transition-all"
             >
-              {selected.size === 0 ? 'Pick at least one date' : `Copy to ${selected.size} date${selected.size !== 1 ? 's' : ''}`}
+              {selected.size === 0 ? 'Pick a date above' : `Copy to ${selected.size} day${selected.size !== 1 ? 's' : ''}`}
             </button>
           </div>
         </div>
@@ -734,8 +734,8 @@ export default function LogFood() {
               {logs.length > 0 && (
                 <div className="border-t border-[#f0f0f5] divide-y divide-[#f0f0f5]">
                   {logs.map(log => (
-                    <div key={log.id} className="px-4 py-3.5 flex items-start gap-3">
-                      <div className="flex-1 min-w-0 flex flex-col gap-1">
+                    <div key={log.id} className="px-4 py-3 flex flex-col gap-2.5">
+                      <div className="flex flex-col gap-1">
                         {log.items.map((item, i) => (
                           <div key={i} className="flex justify-between text-sm">
                             <span className="text-[#1d1d1f] truncate">
@@ -746,35 +746,35 @@ export default function LogFood() {
                           </div>
                         ))}
                       </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <div className="flex gap-2">
                         <button
                           onClick={() => openEdit(log)}
-                          title="Edit"
-                          className="w-8 h-8 bg-[#f5f5f7] rounded-full flex items-center justify-center text-[#8e8e93] active:text-[#0071e3] active:bg-[#e5e5ea] transition-colors"
+                          className="flex-1 bg-[#f5f5f7] active:bg-[#e5e5ea] text-[#0071e3] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
                         >
-                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                           </svg>
+                          Edit
                         </button>
                         <button
                           onClick={() => setCopySource({ kind: 'meal', log })}
-                          title="Copy to another day"
-                          className="w-8 h-8 bg-[#f5f5f7] rounded-full flex items-center justify-center text-[#8e8e93] active:text-[#0071e3] active:bg-[#e5e5ea] transition-colors"
+                          className="flex-1 bg-[#f5f5f7] active:bg-[#e5e5ea] text-[#0071e3] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
                         >
-                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                             <rect x="9" y="9" width="13" height="13" rx="2" />
                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                           </svg>
+                          Copy
                         </button>
                         <button
                           onClick={() => deleteMealLog(log.id)}
-                          title="Delete"
-                          className="w-8 h-8 bg-[#f5f5f7] rounded-full flex items-center justify-center text-[#8e8e93] active:text-[#ff3b30] active:bg-[#e5e5ea] transition-colors"
+                          className="flex-1 bg-[#f5f5f7] active:bg-[#fff0f0] text-[#ff3b30] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
                         >
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                             <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                           </svg>
+                          Delete
                         </button>
                       </div>
                     </div>
