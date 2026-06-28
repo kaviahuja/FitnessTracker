@@ -68,51 +68,40 @@ async function analyzeFood(data: string, mediaType: string): Promise<FoodItem[]>
 
 type Per100g = { calories: number; protein: number; carbs: number; fat: number }
 type FoodSuggestion = { name: string; per100g: Per100g }
-type NinjaFood = {
-  name: string
-  calories: number
-  serving_size_g: number
-  fat_total_g: number
-  protein_g: number
-  carbohydrates_total_g: number
-}
+type USDAFood = { description: string; foodNutrients: { nutrientId: number; value: number }[] }
 
 type SearchResult = { suggestions: FoodSuggestion[]; error: string | null }
 
 async function searchFoods(query: string): Promise<SearchResult> {
   const apiKey = localStorage.getItem('fittrack_nutrition_key')
-  if (!apiKey) return { suggestions: [], error: 'Add API Ninjas key to enable search' }
+  if (!apiKey) return { suggestions: [], error: 'Add USDA API key to enable search' }
   try {
-    const url = `https://api.api-ninjas.com/v1/nutrition?query=${encodeURIComponent(query)}`
-    const res = await fetch(url, { headers: { 'X-Api-Key': apiKey } })
+    const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(query)}&api_key=${apiKey}&dataType=Foundation,SR%20Legacy&pageSize=6`
+    const res = await fetch(url)
     if (!res.ok) {
-      console.error('Nutrition search failed:', res.status, res.statusText)
+      console.error('USDA search failed:', res.status, res.statusText)
       const reason = res.status === 401 || res.status === 403
-        ? 'API Ninjas key is invalid'
+        ? 'USDA API key is invalid'
         : res.status === 429
-        ? 'API Ninjas rate limit reached — try again in a moment'
-        : `Nutrition API error (${res.status})`
+        ? 'USDA rate limit reached — try again in a moment'
+        : `USDA API error (${res.status})`
       return { suggestions: [], error: reason }
     }
-    const foods = await res.json() as NinjaFood[]
-    // API Ninjas returns macros for the serving they detected. Normalise to
-    // per-100g so our ItemEditor can multiply by the user's actual grams.
-    const suggestions = foods.slice(0, 5).map(food => {
-      const grams = food.serving_size_g > 0 ? food.serving_size_g : 100
-      const mul = 100 / grams
-      return {
-        name: food.name,
-        per100g: {
-          calories: Math.round(food.calories * mul),
-          protein: Math.round(food.protein_g * mul * 10) / 10,
-          carbs: Math.round(food.carbohydrates_total_g * mul * 10) / 10,
-          fat: Math.round(food.fat_total_g * mul * 10) / 10,
-        },
-      }
-    })
+    const data = await res.json() as { foods?: USDAFood[] }
+    const getNutrient = (food: USDAFood, id: number) =>
+      food.foodNutrients.find(n => n.nutrientId === id)?.value ?? 0
+    const suggestions = (data.foods ?? []).slice(0, 5).map(food => ({
+      name: food.description,
+      per100g: {
+        calories: Math.round(getNutrient(food, 1008)),
+        protein: Math.round(getNutrient(food, 1003) * 10) / 10,
+        carbs: Math.round(getNutrient(food, 1005) * 10) / 10,
+        fat: Math.round(getNutrient(food, 1004) * 10) / 10,
+      },
+    }))
     return { suggestions, error: null }
   } catch (e) {
-    console.error('Nutrition search threw:', e)
+    console.error('USDA search threw:', e)
     return { suggestions: [], error: 'Network error — check your connection' }
   }
 }
@@ -173,7 +162,7 @@ function ApiKeysModal({ onDismiss, onSaved }: { onDismiss: () => void; onSaved: 
         </div>
         <p className="text-[#6e6e73] text-sm -mt-2">All keys are stored locally on this device only.</p>
 
-        {/* Nutrition (API Ninjas) key */}
+        {/* USDA key (stored under generic "nutrition" field) */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-[#30d158]/10 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -183,12 +172,12 @@ function ApiKeysModal({ onDismiss, onSaved }: { onDismiss: () => void; onSaved: 
             </div>
             <div>
               <p className="text-[#1d1d1f] font-semibold text-sm">Manual Entry Search</p>
-              <p className="text-[#8e8e93] text-xs">API Ninjas — api-ninjas.com</p>
+              <p className="text-[#8e8e93] text-xs">USDA FoodData Central — fdc.nal.usda.gov</p>
             </div>
           </div>
           <input
             type="password"
-            placeholder="Paste your API Ninjas key"
+            placeholder="Paste your USDA API key"
             value={nutritionKey}
             onChange={e => setNutritionKey(e.target.value)}
             className="bg-[#f5f5f7] border border-[#e5e5ea] text-[#1d1d1f] rounded-xl px-4 py-3 outline-none w-full placeholder-[#c7c7cc] text-sm"
@@ -476,7 +465,7 @@ function ItemEditor({ item, onChange, onDelete, hasNutritionKey }: { item: FoodI
               className="block w-full bg-white border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none placeholder-[#c7c7cc] pr-8"
             />
             {!hasNutritionKey && (
-              <p className="text-[#ff9500] text-[10px] mt-1 px-0.5">Add API Ninjas key to enable food search</p>
+              <p className="text-[#ff9500] text-[10px] mt-1 px-0.5">Add USDA key to enable food search</p>
             )}
             {hasNutritionKey && searchError && item.name.length >= 2 && per100g === null && (
               <p className="text-[#ff3b30] text-[10px] mt-1 px-0.5">{searchError}</p>
