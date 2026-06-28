@@ -68,40 +68,51 @@ async function analyzeFood(data: string, mediaType: string): Promise<FoodItem[]>
 
 type Per100g = { calories: number; protein: number; carbs: number; fat: number }
 type FoodSuggestion = { name: string; per100g: Per100g }
-type USDAFood = { description: string; foodNutrients: { nutrientId: number; value: number }[] }
+type NinjaFood = {
+  name: string
+  calories: number
+  serving_size_g: number
+  fat_total_g: number
+  protein_g: number
+  carbohydrates_total_g: number
+}
 
 type SearchResult = { suggestions: FoodSuggestion[]; error: string | null }
 
 async function searchFoods(query: string): Promise<SearchResult> {
-  const apiKey = localStorage.getItem('fittrack_usda_key')
-  if (!apiKey) return { suggestions: [], error: 'Add USDA API key to enable search' }
+  const apiKey = localStorage.getItem('fittrack_nutrition_key')
+  if (!apiKey) return { suggestions: [], error: 'Add API Ninjas key to enable search' }
   try {
-    const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(query)}&api_key=${apiKey}&dataType=Foundation,SR%20Legacy&pageSize=6`
-    const res = await fetch(url)
+    const url = `https://api.api-ninjas.com/v1/nutrition?query=${encodeURIComponent(query)}`
+    const res = await fetch(url, { headers: { 'X-Api-Key': apiKey } })
     if (!res.ok) {
-      console.error('USDA search failed:', res.status, res.statusText)
-      const reason = res.status === 403 || res.status === 401
-        ? 'USDA API key is invalid'
+      console.error('Nutrition search failed:', res.status, res.statusText)
+      const reason = res.status === 401 || res.status === 403
+        ? 'API Ninjas key is invalid'
         : res.status === 429
-        ? 'USDA rate limit reached — try again in a moment'
-        : `USDA API error (${res.status})`
+        ? 'API Ninjas rate limit reached — try again in a moment'
+        : `Nutrition API error (${res.status})`
       return { suggestions: [], error: reason }
     }
-    const data = await res.json() as { foods?: USDAFood[] }
-    const getNutrient = (food: USDAFood, id: number) =>
-      food.foodNutrients.find(n => n.nutrientId === id)?.value ?? 0
-    const suggestions = (data.foods ?? []).slice(0, 5).map(food => ({
-      name: food.description,
-      per100g: {
-        calories: Math.round(getNutrient(food, 1008)),
-        protein: Math.round(getNutrient(food, 1003) * 10) / 10,
-        carbs: Math.round(getNutrient(food, 1005) * 10) / 10,
-        fat: Math.round(getNutrient(food, 1004) * 10) / 10,
-      },
-    }))
+    const foods = await res.json() as NinjaFood[]
+    // API Ninjas returns macros for the serving they detected. Normalise to
+    // per-100g so our ItemEditor can multiply by the user's actual grams.
+    const suggestions = foods.slice(0, 5).map(food => {
+      const grams = food.serving_size_g > 0 ? food.serving_size_g : 100
+      const mul = 100 / grams
+      return {
+        name: food.name,
+        per100g: {
+          calories: Math.round(food.calories * mul),
+          protein: Math.round(food.protein_g * mul * 10) / 10,
+          carbs: Math.round(food.carbohydrates_total_g * mul * 10) / 10,
+          fat: Math.round(food.fat_total_g * mul * 10) / 10,
+        },
+      }
+    })
     return { suggestions, error: null }
   } catch (e) {
-    console.error('USDA search threw:', e)
+    console.error('Nutrition search threw:', e)
     return { suggestions: [], error: 'Network error — check your connection' }
   }
 }
@@ -123,8 +134,8 @@ function emptyItem(): FoodItem {
   return { name: '', amount: '', calories: 0, protein: 0, carbs: 0, fat: 0 }
 }
 
-function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsdaSaved: () => void }) {
-  const [usdaKey, setUsdaKey] = useState(() => localStorage.getItem('fittrack_usda_key') ?? '')
+function ApiKeysModal({ onDismiss, onSaved }: { onDismiss: () => void; onSaved: () => void }) {
+  const [nutritionKey, setNutritionKey] = useState(() => localStorage.getItem('fittrack_nutrition_key') ?? '')
   const [claudeKey, setClaudeKey] = useState(() => localStorage.getItem('fittrack_claude_key') ?? '')
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -132,7 +143,7 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
 
   async function save() {
     setError(null)
-    if (usdaKey.trim()) localStorage.setItem('fittrack_usda_key', usdaKey.trim())
+    if (nutritionKey.trim()) localStorage.setItem('fittrack_nutrition_key', nutritionKey.trim())
     if (claudeKey.trim()) localStorage.setItem('fittrack_claude_key', claudeKey.trim())
     setSaving(true)
     // Sync immediately (no debounce) so we can surface any cloud-write
@@ -144,12 +155,12 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
       setError('Saved locally, but cloud sync failed. Check the browser console for details and verify the api_keys column exists on user_data.')
       return
     }
-    onUsdaSaved()
+    onSaved()
     setSaved(true)
     setTimeout(() => { setSaved(false); onDismiss() }, 800)
   }
 
-  const canSave = !saving && (usdaKey.trim().length >= 8 || claudeKey.trim().length >= 10)
+  const canSave = !saving && (nutritionKey.trim().length >= 8 || claudeKey.trim().length >= 10)
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end z-50 px-4 pb-6">
@@ -162,7 +173,7 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
         </div>
         <p className="text-[#6e6e73] text-sm -mt-2">All keys are stored locally on this device only.</p>
 
-        {/* USDA key */}
+        {/* Nutrition (API Ninjas) key */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-[#30d158]/10 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -172,14 +183,14 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
             </div>
             <div>
               <p className="text-[#1d1d1f] font-semibold text-sm">Manual Entry Search</p>
-              <p className="text-[#8e8e93] text-xs">USDA FoodData Central — fdc.nal.usda.gov</p>
+              <p className="text-[#8e8e93] text-xs">API Ninjas — api-ninjas.com</p>
             </div>
           </div>
           <input
             type="password"
-            placeholder="Paste your USDA API key"
-            value={usdaKey}
-            onChange={e => setUsdaKey(e.target.value)}
+            placeholder="Paste your API Ninjas key"
+            value={nutritionKey}
+            onChange={e => setNutritionKey(e.target.value)}
             className="bg-[#f5f5f7] border border-[#e5e5ea] text-[#1d1d1f] rounded-xl px-4 py-3 outline-none w-full placeholder-[#c7c7cc] text-sm"
           />
         </div>
@@ -361,7 +372,7 @@ function CopyMealModal({ source, onCopy, onClose }: {
   )
 }
 
-function ItemEditor({ item, onChange, onDelete, hasUsdaKey }: { item: FoodItem; onChange: (u: FoodItem) => void; onDelete: () => void; hasUsdaKey: boolean }) {
+function ItemEditor({ item, onChange, onDelete, hasNutritionKey }: { item: FoodItem; onChange: (u: FoodItem) => void; onDelete: () => void; hasNutritionKey: boolean }) {
   const [suggestions, setSuggestions] = useState<FoodSuggestion[]>([])
   const [searchError, setSearchError] = useState<string | null>(null)
   const [per100g, setPer100g] = useState<Per100g | null>(null)
@@ -459,18 +470,18 @@ function ItemEditor({ item, onChange, onDelete, hasUsdaKey }: { item: FoodItem; 
             <input
               type="text"
               value={item.name}
-              placeholder={hasUsdaKey ? 'Search food name...' : 'Enter food name'}
+              placeholder={hasNutritionKey ? 'Search food name...' : 'Enter food name'}
               onChange={e => handleNameChange(e.target.value)}
               onBlur={() => setTimeout(() => setSuggestions([]), 150)}
               className="block w-full bg-white border border-[#e5e5ea] text-[#1d1d1f] text-sm rounded-lg px-2.5 py-2 outline-none placeholder-[#c7c7cc] pr-8"
             />
-            {!hasUsdaKey && (
-              <p className="text-[#ff9500] text-[10px] mt-1 px-0.5">Add USDA key to enable food search</p>
+            {!hasNutritionKey && (
+              <p className="text-[#ff9500] text-[10px] mt-1 px-0.5">Add API Ninjas key to enable food search</p>
             )}
-            {hasUsdaKey && searchError && item.name.length >= 2 && per100g === null && (
+            {hasNutritionKey && searchError && item.name.length >= 2 && per100g === null && (
               <p className="text-[#ff3b30] text-[10px] mt-1 px-0.5">{searchError}</p>
             )}
-            {hasUsdaKey && !searchError && !searching && suggestions.length === 0 && item.name.length >= 2 && per100g === null && (
+            {hasNutritionKey && !searchError && !searching && suggestions.length === 0 && item.name.length >= 2 && per100g === null && (
               <p className="text-[#8e8e93] text-[10px] mt-1 px-0.5">No matches — enter macros manually below</p>
             )}
             {searching && (
@@ -545,7 +556,7 @@ export default function LogFood() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showApiKeys, setShowApiKeys] = useState(false)
-  const [usdaKeySet, setUsdaKeySet] = useState(() => !!localStorage.getItem('fittrack_usda_key'))
+  const [nutritionKeySet, setNutritionKeySet] = useState(() => !!localStorage.getItem('fittrack_nutrition_key'))
   const [copySource, setCopySource] = useState<CopySource | null>(null)
   const [editingMealId, setEditingMealId] = useState<string | null>(null)
   // When editing a whole meal type with multiple logs, we consolidate them
@@ -660,7 +671,7 @@ export default function LogFood() {
 
   return (
     <div className="flex flex-col h-full bg-[#f5f5f7]">
-      {showApiKeys && <ApiKeysModal onDismiss={() => setShowApiKeys(false)} onUsdaSaved={() => setUsdaKeySet(true)} />}
+      {showApiKeys && <ApiKeysModal onDismiss={() => setShowApiKeys(false)} onSaved={() => setNutritionKeySet(true)} />}
       {copySource && <CopyMealModal source={copySource} onCopy={handleCopy} onClose={() => setCopySource(null)} />}
 
       {/* Header */}
@@ -930,7 +941,7 @@ export default function LogFood() {
                       <ItemEditor
                         key={i}
                         item={item}
-                        hasUsdaKey={usdaKeySet}
+                        hasNutritionKey={nutritionKeySet}
                         onChange={updated => setItems(prev => prev.map((it, j) => j === i ? updated : it))}
                         onDelete={() => setItems(prev => prev.filter((_, j) => j !== i))}
                       />

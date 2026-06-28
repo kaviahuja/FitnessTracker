@@ -370,7 +370,7 @@ export default function Profile() {
             // Preserve device-level API keys (USDA, Claude) across sign-out —
             // they belong to the device/user setup, not the account session.
             const preserved: Record<string, string> = {}
-            for (const k of ['fittrack_usda_key', 'fittrack_claude_key']) {
+            for (const k of ['fittrack_nutrition_key', 'fittrack_claude_key']) {
               const v = localStorage.getItem(k)
               if (v) preserved[k] = v
             }

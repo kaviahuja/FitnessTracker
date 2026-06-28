@@ -15,7 +15,9 @@ const KEYS = {
 }
 
 const API_KEYS = {
-  usda: 'fittrack_usda_key',
+  // Generic "nutrition" so a future provider switch is a code-only change.
+  // Currently used for API Ninjas (api-ninjas.com/v1/nutrition).
+  nutrition: 'fittrack_nutrition_key',
   claude: 'fittrack_claude_key',
 }
 
@@ -36,7 +38,7 @@ async function syncToCloud(): Promise<boolean> {
     routine: JSON.parse(localStorage.getItem(KEYS.routine) ?? '{}'),
     custom_exercises: JSON.parse(localStorage.getItem(KEYS.customExercises) ?? '{}'),
     api_keys: {
-      usda: localStorage.getItem(API_KEYS.usda) ?? null,
+      nutrition: localStorage.getItem(API_KEYS.nutrition) ?? null,
       claude: localStorage.getItem(API_KEYS.claude) ?? null,
     },
     updated_at: new Date().toISOString(),
@@ -102,7 +104,7 @@ export async function loadFromCloud(): Promise<boolean> {
   // Restore API keys from cloud — so they survive sign-outs, "Clear site data",
   // and switching devices. Only set if cloud has a value (don't overwrite a
   // local key with null).
-  if (data.api_keys?.usda) localStorage.setItem(API_KEYS.usda, data.api_keys.usda)
+  if (data.api_keys?.nutrition) localStorage.setItem(API_KEYS.nutrition, data.api_keys.nutrition)
   if (data.api_keys?.claude) localStorage.setItem(API_KEYS.claude, data.api_keys.claude)
   return true
 }
