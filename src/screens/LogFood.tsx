@@ -211,9 +211,10 @@ function ApiKeysModal({ onDismiss, onUsdaSaved }: { onDismiss: () => void; onUsd
   )
 }
 
-// Copy source: either a single meal or all meals from a date
+// Copy source: a single meal log, all of one meal type, or the whole day
 type CopySource =
   | { kind: 'meal'; log: MealLog }
+  | { kind: 'mealType'; meal: string; date: string; logs: MealLog[] }
   | { kind: 'day'; date: string; logs: MealLog[] }
 
 function CopyMealModal({ source, onCopy, onClose }: {
@@ -254,6 +255,8 @@ function CopyMealModal({ source, onCopy, onClose }: {
   // Preview labels
   const headerSub = source.kind === 'meal'
     ? source.log.meal
+    : source.kind === 'mealType'
+    ? source.meal
     : `${source.logs.length} meal${source.logs.length !== 1 ? 's' : ''} from ${formatDate(source.date)}`
   const itemNames = source.kind === 'meal'
     ? source.log.items.map(i => i.name).join(', ')
@@ -529,6 +532,9 @@ export default function LogFood() {
   const [usdaKeySet, setUsdaKeySet] = useState(() => !!localStorage.getItem('fittrack_usda_key'))
   const [copySource, setCopySource] = useState<CopySource | null>(null)
   const [editingMealId, setEditingMealId] = useState<string | null>(null)
+  // When editing a whole meal type with multiple logs, we consolidate them
+  // into a single log on save and delete the rest. These are the ids to drop.
+  const [replacingLogIds, setReplacingLogIds] = useState<string[]>([])
   const [, setRefresh] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dateInputRef = useRef<HTMLInputElement>(null)
@@ -553,6 +559,7 @@ export default function LogFood() {
     setError(null)
     setItems([])
     setEditingMealId(null)
+    setReplacingLogIds([])
   }
 
   function openEdit(log: MealLog) {
@@ -562,7 +569,31 @@ export default function LogFood() {
     setPhotoPreview(log.photoUrl ?? null)
     setError(null)
     setEditingMealId(log.id)
+    setReplacingLogIds([])
     setStep('manual-add')
+  }
+
+  // Edit all logs of a meal type for the current day as one unit. On save we
+  // delete every old log of that type and write a single consolidated one.
+  function openEditMealType(meal: MealType) {
+    const logsOfType = mealLogs.filter(m => m.meal === meal)
+    if (logsOfType.length === 0) return
+    const combined = logsOfType.flatMap(l => l.items)
+    const photo = logsOfType.find(l => l.photoUrl)?.photoUrl ?? null
+    setSelectedMeal(meal)
+    setItems(combined.length ? combined : [emptyItem()])
+    setPhotoPreview(photo)
+    setError(null)
+    setEditingMealId(null)
+    setReplacingLogIds(logsOfType.map(l => l.id))
+    setStep('manual-add')
+  }
+
+  // Delete every log of a meal type for the current day.
+  function deleteMealType(meal: MealType) {
+    const logsOfType = mealLogs.filter(m => m.meal === meal)
+    for (const log of logsOfType) storage.deleteMealLog(log.id)
+    setRefresh(r => r + 1)
   }
 
   async function handlePhoto(file: File) {
@@ -585,8 +616,10 @@ export default function LogFood() {
     const validItems = items.filter(i => i.name.trim())
     if (!validItems.length) return
     // Reuse existing id when editing so storage.saveMealLog updates the row
-    // instead of creating a duplicate.
+    // instead of creating a duplicate. When consolidating multiple logs of a
+    // meal type, drop the old ones first.
     const id = editingMealId ?? uid()
+    for (const rid of replacingLogIds) storage.deleteMealLog(rid)
     storage.saveMealLog({ id, date: selectedDate, meal: selectedMeal, items: validItems, ...(photoPreview ? { photoUrl: photoPreview } : {}) } as MealLog)
     setRefresh(r => r + 1)
     closeSheet()
@@ -706,69 +739,76 @@ export default function LogFood() {
         {MEAL_TYPES.map(type => {
           const logs = mealLogs.filter(m => m.meal === type)
           const typeCals = logs.reduce((s, m) => s + m.items.reduce((ss, i) => ss + i.calories, 0), 0)
+          // Aggregate all items across logs of this meal type so they render
+          // as one scrollable list, regardless of how many separate logs the
+          // user has created for this meal type today.
+          const allItems = logs.flatMap(l => l.items)
+          const hasLogs = logs.length > 0
           return (
             <div key={type} className="bg-white rounded-2xl border border-[#e5e5ea] overflow-hidden shadow-sm">
               <div className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-1.5 h-9 rounded-full ${MEAL_COLORS[type]}`} />
-                  <div>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-1.5 h-9 rounded-full flex-shrink-0 ${MEAL_COLORS[type]}`} />
+                  <div className="min-w-0">
                     <p className="text-[#1d1d1f] font-semibold">{type}</p>
-                    <p className="text-[#8e8e93] text-xs">{MEAL_TIMES[type]}{typeCals > 0 ? ` · ${typeCals} kcal` : ''}</p>
+                    <p className="text-[#8e8e93] text-xs truncate">{MEAL_TIMES[type]}{typeCals > 0 ? ` · ${typeCals} kcal` : ''}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => openSheet(type)}
-                  className="w-8 h-8 bg-[#f5f5f7] border border-[#e5e5ea] rounded-full flex items-center justify-center text-[#30d158] text-xl font-light"
-                >
-                  +
-                </button>
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  {hasLogs && (
+                    <>
+                      <button
+                        onClick={() => openEditMealType(type)}
+                        title="Edit"
+                        className="p-1.5 text-[#c7c7cc] active:text-[#0071e3]"
+                      >
+                        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => setCopySource({ kind: 'mealType', meal: type, date: selectedDate, logs })}
+                        title="Copy to another day"
+                        className="p-1.5 text-[#c7c7cc] active:text-[#0071e3]"
+                      >
+                        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <rect x="9" y="9" width="13" height="13" rx="2" />
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => deleteMealType(type)}
+                        title="Delete"
+                        className="p-1.5 text-[#c7c7cc] active:text-[#ff3b30]"
+                      >
+                        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          <line x1="10" y1="11" x2="10" y2="17" />
+                          <line x1="14" y1="11" x2="14" y2="17" />
+                        </svg>
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => openSheet(type)}
+                    title="Add"
+                    className="w-8 h-8 ml-1 bg-[#f5f5f7] border border-[#e5e5ea] rounded-full flex items-center justify-center text-[#30d158] text-xl font-light"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
-              {logs.length > 0 && (
-                <div className="border-t border-[#f0f0f5] divide-y divide-[#f0f0f5]">
-                  {logs.map(log => (
-                    <div key={log.id} className="px-4 py-3 flex flex-col gap-2.5">
-                      <div className="flex flex-col gap-1">
-                        {log.items.map((item, i) => (
-                          <div key={i} className="flex justify-between text-sm">
-                            <span className="text-[#1d1d1f] truncate">
-                              {item.name}
-                              {item.amount ? <span className="text-[#8e8e93] text-xs ml-1">({item.amount})</span> : null}
-                            </span>
-                            <span className="text-[#6e6e73] ml-2 flex-shrink-0">{item.calories} kcal</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          onClick={() => openEdit(log)}
-                          className="bg-[#0071e3]/10 border border-[#0071e3]/30 text-[#0071e3] py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 active:bg-[#0071e3]/20 transition-colors"
-                        >
-                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                          </svg>
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => setCopySource({ kind: 'meal', log })}
-                          className="bg-[#30d158]/10 border border-[#30d158]/40 text-[#1e8e3e] py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 active:bg-[#30d158]/20 transition-colors"
-                        >
-                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                            <rect x="9" y="9" width="13" height="13" rx="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                          </svg>
-                          Copy
-                        </button>
-                        <button
-                          onClick={() => deleteMealLog(log.id)}
-                          className="bg-[#ff3b30]/10 border border-[#ff3b30]/30 text-[#ff3b30] py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 active:bg-[#ff3b30]/20 transition-colors"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-                          </svg>
-                          Delete
-                        </button>
-                      </div>
+              {hasLogs && (
+                <div className="border-t border-[#f0f0f5] max-h-48 overflow-y-auto divide-y divide-[#f0f0f5]">
+                  {allItems.map((item, i) => (
+                    <div key={i} className="px-4 py-2.5 flex justify-between text-sm">
+                      <span className="text-[#1d1d1f] truncate">
+                        {item.name}
+                        {item.amount ? <span className="text-[#8e8e93] text-xs ml-1">({item.amount})</span> : null}
+                      </span>
+                      <span className="text-[#6e6e73] ml-2 flex-shrink-0">{item.calories} kcal</span>
                     </div>
                   ))}
                 </div>
