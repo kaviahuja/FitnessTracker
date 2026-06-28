@@ -785,7 +785,10 @@ export default function LogFood() {
                 </div>
               </div>
               {hasLogs && (
-                <div className="border-t border-[#f0f0f5] max-h-48 overflow-y-auto divide-y divide-[#f0f0f5]">
+                <div
+                  className="border-t border-[#f0f0f5] max-h-36 overflow-y-auto divide-y divide-[#f0f0f5]"
+                  style={{ scrollbarWidth: 'thin', scrollbarColor: '#c7c7cc transparent' }}
+                >
                   {allItems.map((item, i) => (
                     <div key={i} className="px-4 py-2.5 flex justify-between text-sm">
                       <span className="text-[#1d1d1f] truncate">
